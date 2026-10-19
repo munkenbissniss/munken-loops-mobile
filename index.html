@@ -271,19 +271,20 @@ async function fixMp4(file,sink,progress){
 /* REMUX:END */
 
 
+const IOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
 const $=s=>document.querySelector(s),sleep=ms=>new Promise(r=>setTimeout(r,ms)),fmtT=s=>{s=Math.max(0,Math.round(s));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')};
 const DEF={shotBars:8,follow:.5,minBars:4,maxBars:32,irregular:.25,accent:true,setSize:3,styleMatch:.7,variety:.6,useAll:false,clip:false,theme:'',matchEnergy:.6,secLen:45,reuseSets:true,evolve:16,themeWeight:0,seed:'',
  layerDensity:0,lookVar:.4,layerOpacity:.5,layerBlend:'auto',layerLen:.6,tintAmount:.12,mirror:'off',trails:0,reactive:.5,slowmo:.3,fade:8,breathe:.03,breathBars:16,zoom:0,zoomOn:'bar',shake:0,shakeOn:'kick',pulse:0,pulseOn:'kick',pulseMode:'light',res:'1280x720',bitrate:4,fps:30,sync:0};
 const PACE={Slow:{shotBars:16,minBars:8,maxBars:32},Normal:{shotBars:8,minBars:4,maxBars:32},Fast:{shotBars:4,minBars:2,maxBars:16}},FADE={Short:2,Medium:8,Long:16};
 const MOOD={Ambient:{pace:'Slow',fade:'Long',slowmo:.5,breathe:.04,lookVar:.3,zoom:0,pulse:0,h:'Very slow and dreamy. Long shots, long fades.'},Chill:{pace:'Normal',fade:'Medium',slowmo:.3,breathe:.03,lookVar:.4,zoom:0,pulse:0,h:'Relaxed and soft. A good default.'},
  Groove:{pace:'Fast',fade:'Short',slowmo:.1,breathe:.02,lookVar:.5,zoom:.02,pulse:.04,h:'A little more movement, with a gentle pulse on the beat.'}};
-const RES={'480p':[854,480,2.5],'720p':[1280,720,4],'1080p':[1920,1080,8]},PH={Slow:'Each clip stays about 30 seconds at 120 BPM (16 bars).',Normal:'Each clip stays about 16 seconds at 120 BPM (8 bars).',Fast:'Each clip stays about 8 seconds at 120 BPM (4 bars).'};
-const ui={mood:'Chill',pace:'Normal',fade:'Medium',sets:'3',res:'720p',orient:'Landscape',slowmo:'1',breathe:'1',clip:'0'};
+const RES={'480p':[854,480,2],'720p':[1280,720,3.5],'1080p':[1920,1080,7]},PH={Slow:'Each clip stays about 30 seconds at 120 BPM (16 bars).',Normal:'Each clip stays about 16 seconds at 120 BPM (8 bars).',Fast:'Each clip stays about 8 seconds at 120 BPM (4 bars).'};
+const ui={mood:'Chill',pace:'Normal',fade:'Medium',sets:'3',res:IOS?'480p':'720p',orient:'Landscape',slowmo:'1',breathe:'1',clip:'0'};
 function showUI(){document.querySelectorAll('.seg').forEach(s=>s.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.v==ui[s.dataset.k])));$('#moodH').textContent=MOOD[ui.mood].h;$('#paceH').textContent=PH[ui.pace]}
 document.querySelectorAll('.seg').forEach(s=>s.onclick=e=>{const b=e.target.closest('button');if(!b)return;const k=s.dataset.k;ui[k]=b.dataset.v;
  if(k=='mood'){const m=MOOD[ui.mood];ui.pace=m.pace;ui.fade=m.fade}showUI()});
 function opts(){const m=MOOD[ui.mood],o={...DEF,...PACE[ui.pace],fade:FADE[ui.fade],setSize:+ui.sets,slowmo:ui.slowmo=='1'?m.slowmo:0,breathe:ui.breathe=='1'?m.breathe:0,lookVar:m.lookVar,zoom:m.zoom,pulse:m.pulse},[w,h,b]=RES[ui.res];
- o.res=ui.orient=='Portrait'?`${h}x${w}`:`${w}x${h}`;o.bitrate=b;o.seed=$('#seed').value;o.clip=ui.clip=='1';o.theme=o.clip?$('#theme').value.trim():'';o.themeWeight=o.theme?.5:0;return o}
+ o.res=ui.orient=='Portrait'?`${h}x${w}`:`${w}x${h}`;o.bitrate=b;o.fps=IOS?24:30;o.seed=$('#seed').value;o.clip=ui.clip=='1';o.theme=o.clip?$('#theme').value.trim():'';o.themeWeight=o.theme?.5:0;return o}
 
 /* ---------------- files ---------------- */
 const MAXL=24,isVid=f=>/^video\//.test(f.type)||/\.(mp4|mov|m4v|webm|mkv)$/i.test(f.name),fkey=f=>f.name+'|'+f.size+'|'+f.lastModified;
@@ -318,7 +319,7 @@ async function analyzeLoop(f,vid,wantFrame){
 const loopCache=new Map();
 async function loopsFor(files,msg,clip){
  const need=files.filter(f=>{const c=loopCache.get(fkey(f));return !c||(clip&&!c.bad&&!c.emb)});
- if(need.length){const mkVid=()=>{const v=document.createElement('video');v.muted=true;v.playsInline=true;v.setAttribute('playsinline','');v.preload='auto';v.style.cssText='position:fixed;left:-9999px;width:2px;height:2px';document.body.append(v);return v},ws=[{v:mkVid()},{v:mkVid()}];
+ if(need.length){const mkVid=()=>{const v=document.createElement('video');v.muted=true;v.playsInline=true;v.setAttribute('playsinline','');v.preload='auto';v.style.cssText='position:fixed;left:-9999px;width:2px;height:2px';document.body.append(v);return v},ws=(IOS?[0]:[0,1]).map(()=>({v:mkVid()}));
   let next=0,done=0;msg(`Looking at your loops 0/${need.length}…`);
   await Promise.all(ws.map(async w=>{for(;;){const i=next++;if(i>=need.length)break;const f=need[i];
    try{loopCache.set(fkey(f),await Promise.race([analyzeLoop(f,w.v,clip),sleep(45000).then(()=>{throw new Error('timeout')})]))}
@@ -346,13 +347,27 @@ const MIMES=['video/mp4;codecs=avc1.640028,mp4a.40.2','video/mp4;codecs=avc1,mp4
 const MIME=window.MediaRecorder?MIMES.find(t=>MediaRecorder.isTypeSupported(t))||'':'',EXT=MIME.includes('mp4')?'mp4':'webm';
 $('#fmt').innerHTML=!MIME?'<span class="note">This browser cannot record video. Try Chrome (Android) or Safari (iPhone).</span>':EXT=='mp4'?'':'<span class="note">This phone can only save WebM. Many apps cannot open it, but it plays in a browser and can be converted with ffmpeg.</span>';
 async function openSink(name){let w=null,root=null,fh=null;try{root=await navigator.storage.getDirectory();fh=await root.getFileHandle(name,{create:true});w=await fh.createWritable()}catch(e){w=null}
+ if(w){let p=Promise.resolve();return{write(b){p=p.then(()=>w.write(b))},async close(){await p;await w.close();return fh.getFile()},async remove(){try{await root.removeEntry(name)}catch(e){}}}}
+ // no private file system (iPhone): keep the recording in IndexedDB, which is stored on disk and not in memory
+ if(typeof indexedDB!=='undefined'){try{
+  const db=await new Promise((res,rej)=>{const r=indexedDB.open('munken-rec',1);r.onupgradeneeded=()=>r.result.createObjectStore('c');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)});
+  const put=(k,v)=>new Promise((res,rej)=>{const tx=db.transaction('c','readwrite');tx.objectStore('c').put(v,k);tx.oncomplete=res;tx.onerror=()=>rej(tx.error);tx.onabort=()=>rej(tx.error)}),range=IDBKeyRange.bound(name+':',name+':\uffff');
+  await put(name+'_test',new Blob(['x']));await new Promise(res=>{const tx=db.transaction('c','readwrite');tx.objectStore('c').delete(name+'_test');tx.oncomplete=res;tx.onerror=res});
+  let n=0,p=Promise.resolve();
+  return{write(b){const k=`${name}:${String(n++).padStart(8,'0')}`;p=p.then(()=>put(k,b))},
+   async close(){await p;const parts=await new Promise((res,rej)=>{const r=db.transaction('c').objectStore('c').getAll(range);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)});return new Blob(parts,{type:MIME})},
+   async remove(){try{await p}catch(e){}await new Promise(res=>{const tx=db.transaction('c','readwrite');tx.objectStore('c').delete(range);tx.oncomplete=res;tx.onerror=res})}}}catch(e){}}
  const mem=[];let p=Promise.resolve();
- return{write(b){p=p.then(()=>w?w.write(b):void mem.push(b))},async close(){await p;if(w){await w.close();return fh.getFile()}return new Blob(mem,{type:MIME})},async remove(){try{root&&await root.removeEntry(name)}catch(e){}}}}
+ return{write(b){p=p.then(()=>void mem.push(b))},async close(){await p;return new Blob(mem,{type:MIME})},async remove(){}}}
 const tickW=new Worker(URL.createObjectURL(new Blob(['let id;onmessage=e=>{clearInterval(id);if(e.data)id=setInterval(()=>postMessage(0),1000/e.data)}'])));
-let wake=null;const wakeOn=async()=>{try{if(navigator.wakeLock&&!wake){wake=await navigator.wakeLock.request('screen');wake.addEventListener('release',()=>wake=null)}}catch(e){}},wakeOff=()=>{try{wake&&wake.release()}catch(e){}wake=null};
+const NOSLEEP='data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAM3bW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAAA+gAAQAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAmF0cmFrAAAAXHRraGQAAAADAAAAAAAAAAAAAAABAAAAAAAAA+gAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAABAAAAAQAAAAAAAkZWR0cwAAABxlbHN0AAAAAAAAAAEAAAPoAAAAAAABAAAAAAHZbWRpYQAAACBtZGhkAAAAAAAAAAAAAAAAAAAoAAAAKABVxAAAAAAALWhkbHIAAAAAAAAAAHZpZGUAAAAAAAAAAAAAAABWaWRlb0hhbmRsZXIAAAABhG1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAAURzdGJsAAAAuHN0c2QAAAAAAAAAAQAAAKhhdmMxAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAABAAEABIAAAASAAAAAAAAAABFUxhdmM2MC4zMS4xMDIgbGlieDI2NAAAAAAAAAAAAAAAGP//AAAALmF2Y0MBQsAK/+EAFmdCwArZHsBEAAADAAQAAAMAKDxImSABAAVoy4PLIAAAABBwYXNwAAAAAQAAAAEAAAAUYnRydAAAAAAAABVIAAAVSAAAABhzdHRzAAAAAAAAAAEAAAAFAAAIAAAAABRzdHNzAAAAAAAAAAEAAAABAAAAHHN0c2MAAAAAAAAAAQAAAAEAAAAFAAAAAQAAAChzdHN6AAAAAAAAAAAAAAAFAAACgwAAAAoAAAAKAAAACQAAAAkAAAAUc3RjbwAAAAAAAAABAAADZwAAAGJ1ZHRhAAAAWm1ldGEAAAAAAAAAIWhkbHIAAAAAAAAAAG1kaXJhcHBsAAAAAAAAAAAAAAAALWlsc3QAAAAlqXRvbwAAAB1kYXRhAAAAAQAAAABMYXZmNjAuMTYuMTAwAAAACGZyZWUAAAKxbWRhdAAAAnAGBf//bNxF6b3m2Ui3lizYINkj7u94MjY0IC0gY29yZSAxNjQgcjMxMDggMzFlMTlmOSAtIEguMjY0L01QRUctNCBBVkMgY29kZWMgLSBDb3B5bGVmdCAyMDAzLTIwMjMgLSBodHRwOi8vd3d3LnZpZGVvbGFuLm9yZy94MjY0Lmh0bWwgLSBvcHRpb25zOiBjYWJhYz0wIHJlZj0zIGRlYmxvY2s9MTowOjAgYW5hbHlzZT0weDE6MHgxMTEgbWU9aGV4IHN1Ym1lPTcgcHN5PTEgcHN5X3JkPTEuMDA6MC4wMCBtaXhlZF9yZWY9MSBtZV9yYW5nZT0xNiBjaHJvbWFfbWU9MSB0cmVsbGlzPTEgOHg4ZGN0PTAgY3FtPTAgZGVhZHpvbmU9MjEsMTEgZmFzdF9wc2tpcD0xIGNocm9tYV9xcF9vZmZzZXQ9LTIgdGhyZWFkcz0xIGxvb2thaGVhZF90aHJlYWRzPTEgc2xpY2VkX3RocmVhZHM9MCBucj0wIGRlY2ltYXRlPTEgaW50ZXJsYWNlZD0wIGJsdXJheV9jb21wYXQ9MCBjb25zdHJhaW5lZF9pbnRyYT0wIGJmcmFtZXM9MCB3ZWlnaHRwPTAga2V5aW50PTI1MCBrZXlpbnRfbWluPTUgc2NlbmVjdXQ9NDAgaW50cmFfcmVmcmVzaD0wIHJjX2xvb2thaGVhZD00MCByYz1jcmYgbWJ0cmVlPTEgY3JmPTIzLjAgcWNvbXA9MC42MCBxcG1pbj0wIHFwbWF4PTY5IHFwc3RlcD00IGlwX3JhdGlvPTEuNDAgYXE9MToxLjAwAIAAAAALZYiEBHyYoAA2I4AAAAAGQZo4CPqAAAAABkGaVAI+oAAAAAVBmmAQ9QAAAAVBmoA/1A==';
+let wake=null,nsEl=null;
+const wakeOn=async()=>{try{if(navigator.wakeLock){if(!wake){wake=await navigator.wakeLock.request('screen');wake.addEventListener('release',()=>wake=null)}return}}catch(e){}
+ try{if(!nsEl){nsEl=document.createElement('video');nsEl.src=NOSLEEP;nsEl.loop=true;nsEl.muted=true;nsEl.playsInline=true;nsEl.setAttribute('playsinline','');nsEl.style.cssText='position:fixed;right:0;bottom:0;width:2px;height:2px;opacity:.02;pointer-events:none';document.body.append(nsEl)}await nsEl.play()}catch(e){}},
+ wakeOff=()=>{try{wake&&wake.release()}catch(e){}wake=null;try{nsEl&&nsEl.pause()}catch(e){}};
 
 /* ---------------- renderer (offscreen canvas) ---------------- */
-const POOL=4,pool=[];
+const POOL=3,pool=[];
 function mkPool(){if(pool.length)return;for(let i=0;i<POOL;i++){const el=document.createElement('video');el.muted=true;el.loop=true;el.playsInline=true;el.setAttribute('playsinline','');el.preload='auto';el.style.cssText='position:fixed;left:-9999px;width:2px;height:2px';document.body.append(el);pool.push({el,loop:-1,url:'',t:0})}}
 const holder=l=>pool.find(p=>p.loop===l);
 function acquire(L,l,need,m){const p=pool.find(p=>p.loop===-1)||pool.filter(p=>!need.has(p.loop)).sort((a,b)=>a.t-b.t)[0];if(!p)return;
@@ -369,7 +384,8 @@ function renderJob(j,A,L,P){
   mkPool();pool.forEach(p=>{p.loop=-1;p.el.pause()});
   const findK=m=>{let lo=0,hi=slots.length-1,r=0;while(lo<=hi){const k=(lo+hi)>>1;if(ta[k]<=m){r=k;lo=k+1}else hi=k-1}return r};
   const eAt=m=>{let lo=0,hi=A.nb-1;while(lo<hi){const k=(lo+hi+1)>>1;if(A.bt[k]<=m)lo=k;else hi=k-1}return A.energy[lo]};
-  const ensure=(m,k)=>{const need=new Set();for(let i=Math.max(0,k-1);i<slots.length&&i<=k+2&&ta[i]<m+14;i++)need.add(slots[i].loop);need.forEach(l=>{const h=holder(l);if(h)h.t=m;else acquire(L,l,need,m)})};
+  const ensure=(m,k)=>{const need=new Set();for(let i=Math.max(0,k-1);i<slots.length&&i<=k+1&&ta[i]<m+14;i++)need.add(slots[i].loop);need.forEach(l=>{const h=holder(l);if(h)h.t=m;else acquire(L,l,need,m)});
+   for(const p of pool)if(p.loop>=0&&!need.has(p.loop)&&m-p.t>3){p.el.pause();p.el.removeAttribute('src');p.el.load();if(p.url)URL.revokeObjectURL(p.url);p.url='';p.loop=-1}};
   const visible=(m,k)=>{const v=new Set([slots[k].loop]);if(k>0&&m-ta[k]<slots[k].xf)v.add(slots[k-1].loop);if(k+1<slots.length&&ta[k+1]-m<2.5)v.add(slots[k+1].loop);return v};
   j.msg='Loading the first clips…';upd(j);
   for(let i=0;i<100;i++){ensure(0,0);const h=holder(slots[0].loop);if(h&&h.el.readyState>=2)break;await sleep(100)}
@@ -377,7 +393,7 @@ function renderJob(j,A,L,P){
   const sink=await openSink(`${j.id}-${Date.now()}.${EXT}`);j.sink=sink;
   const rec=new MediaRecorder(new MediaStream([...cv.captureStream(o.fps).getVideoTracks(),...dest.stream.getAudioTracks()]),{mimeType:MIME,videoBitsPerSecond:o.bitrate*1e6,audioBitsPerSecond:160000});
   rec.ondataavailable=e=>{if(e.data.size)sink.write(e.data)};
-  let ended=false;const finish=async why=>{if(ended)return;ended=true;tickW.postMessage(0);wakeOff();try{src.stop()}catch(e){}pool.forEach(p=>p.el.pause());
+  let ended=false;const finish=async why=>{if(ended)return;ended=true;tickW.postMessage(0);wakeOff();try{localStorage.removeItem('mm_busy')}catch(e){}try{src.stop()}catch(e){}pool.forEach(p=>p.el.pause());
    await new Promise(r=>{rec.onstop=r;if(rec.state!='inactive')rec.stop();else r()});let f=await sink.close();
    if(EXT=='mp4'){j.status='finalizing';j.msg='Fixing duration and seeking…';upd(j);
     try{const s2=await openSink(`${j.id}-fixed-${Date.now()}.mp4`);const ok=await fixMp4(f,s2,p=>{j.msg=`Fixing duration and seeking… ${Math.round(p*100)} %`;upd(j)});
@@ -385,7 +401,7 @@ function renderJob(j,A,L,P){
    j.file=f instanceof File?f:new File([f],'mix.'+EXT,{type:MIME.split(';')[0]});j.url=URL.createObjectURL(j.file);j.status=why;j.prog=why=='done'?1:j.prog;j.msg='';upd(j);if(AC.state=='suspended')AC.resume();resolve()};
   j.ctl={pause:async()=>{if(j.status!='rendering')return;j.status='paused';await AC.suspend();rec.state=='recording'&&rec.pause();pool.forEach(p=>p.el.pause());upd(j)},
    resume:async()=>{if(j.status!='paused')return;j.status='rendering';j.msg='';j.note='';rec.state=='paused'&&rec.resume();await AC.resume();wakeOn();upd(j)},stop:()=>{if(j.status=='paused')AC.resume();finish('stopped')}};
-  const tS=AC.currentTime+.3;src.start(tS);rec.start(1000);wakeOn();j.status='rendering';j.msg='';upd(j);let lastUI=0,lastRate=0;
+  const tS=AC.currentTime+.3;src.start(tS);rec.start(1000);wakeOn();try{localStorage.setItem('mm_busy','1')}catch(e){}j.status='rendering';j.msg='';upd(j);let lastUI=0,lastRate=0;
   tickW.onmessage=()=>{if(ended||j.status!='rendering')return;const m=AC.currentTime-tS;if(m<0)return;if(m>=A.dur){finish('done');return}
    const k=findK(m);ensure(m,k);const s=slots[k],since=m-ta[k],bo=s.kind=='drop'?1.6:1,e=eAt(m),react=1-o.reactive+o.reactive*Math.min(1.4,e*1.6),look=looks[s.cluster],pl=k>0?looks[slots[k-1].cluster]:look,fx=s.xf>0&&since<s.xf?ease(since/s.xf):1;
    const vis=visible(m,k);for(const p of pool)if(p.loop>=0){const want=vis.has(p.loop);if(want&&p.el.paused&&p.el.readyState>=2)p.el.play().catch(()=>{});else if(!want&&!p.el.paused)p.el.pause()}
@@ -445,5 +461,6 @@ async function doJob(j){
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&cur&&cur.status=='rendering'){cur.note='Paused because the page was hidden. Come back and press Resume.';cur.ctl.pause()}else if(!document.hidden&&cur&&(cur.status=='rendering'||cur.status=='paused'))wakeOn()});
 addEventListener('beforeunload',e=>{if(jobs.some(j=>['preparing','rendering','paused','finalizing'].includes(j.status))){e.preventDefault();e.returnValue=''}});
 showUI();
+if(localStorage.getItem('mm_busy')){localStorage.removeItem('mm_busy');st('The page reloaded while a video was being made. That usually means the phone ran out of memory or the screen locked. Try 480p, fewer loops or a shorter track, and keep the screen on.',1)}
 </script>
 </body></html>

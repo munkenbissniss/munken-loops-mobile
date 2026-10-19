@@ -18,7 +18,8 @@ The track is analysed for tempo, beats, song sections, breaks, drops and kick dr
 ## Good to know on a phone
 
 - **Real time:** a 4-minute track takes about 4 minutes. Keep the page open and the screen on. The app asks the phone to stay awake, and if you switch app it pauses and waits for you.
-- **Memory:** on iPhone the finished file is kept in memory until you download it, so very long tracks at high quality can be too much. Start with 720p and tracks of a few minutes.
+- **Memory:** iPhones close a page that uses too much memory, and the page then reloads by itself. To avoid that, the app uses at most three videos at once, releases the ones it no longer needs, stores the recording on disk (IndexedDB) instead of in memory, and defaults to 480p at 24 fps on iPhone. If the page still reloads, use a shorter track, fewer or smaller loops (1080p loops are much lighter than 4K), or 480p. After a reload the app tells you that it happened.
+- **Screen:** the screen must stay on. The app uses Wake Lock where the browser supports it, and otherwise plays a tiny invisible video, which also keeps an iPhone awake. If the screen still locks, switch off Auto-Lock in iPhone Settings -> Display & Brightness while you make a video.
 - **Format:** Safari (iPhone) and Chrome (Android) save MP4. A browser that can only save WebM shows a warning.
 - **AI matching (CLIP) is optional and off by default.** It downloads about 90 MB the first time (about 150 MB with a theme; use Wi-Fi), looks at one frame per loop, and is released again before the video is recorded to save memory. If the phone cannot run it, the app carries on with standard matching and says so on the export card.
 - **Fewer settings than the desktop version:** layers and the full advanced settings are in the [desktop version](https://github.com/munkenbissniss/munken-loops), which also has a command-line tool.
