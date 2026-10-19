@@ -97,6 +97,7 @@ async function analyzeAudio(ab,secLen,prog){
   let lw=0;for(let k=2;k<=lowEnd;k++)lw+=mg[k];low[t]=Math.log(1+lw);
   let f=0;for(let b=0;b<B;b++){let q=0;for(let k=edges[b];k<edges[b+1];k++)q+=mg[k];q=Math.log(1+q);band[t*B+b]=q;f+=Math.max(0,q-prev[b]);prev[b]=q}flux[t]=f;
   if(t%800==0){prog&&prog(`Analyzing music… ${Math.round(100*t/T)} %`);await new Promise(r=>setTimeout(r))}}
+ prog&&prog('Finding the beat…');await new Promise(r=>setTimeout(r));
  const o=sm(Array.from(flux),1),sd=Math.sqrt(Math.max(1e-12,mean(o.map(v=>v*v),0,T)-mean(o,0,T)**2))+1e-9,oo=o.map(v=>v/sd);
  let P=0,bs=-1;for(let L=Math.round(fr*60/200);L<=Math.round(fr*60/60);L++){let s=0;for(let i=0;i+L<T;i++)s+=oo[i]*oo[i+L];s/=T-L;
   s*=Math.exp(-.5*(Math.log2(60*fr/L/120)/.9)**2);if(s>bs){bs=s;P=L}}
@@ -118,6 +119,7 @@ async function analyzeAudio(ab,secLen,prog){
  for(let t=3;t<T-3;t++){let ok=lf[t]>lmu+.5*lsd;for(let j=-3;j<=3&&ok;j++)if(lf[t+j]>lf[t])ok=false;
   if(ok&&t*H/sr+off-last>.12){last=t*H/sr+off;kicks.push(last);kst.push(lf[t])}}
  const k90=pctl(kst.length?kst:[1],90)+1e-9,kstr=kst.map(v=>clamp(v/k90,0,1));
+ prog&&prog('Finding song sections…');await new Promise(r=>setTimeout(r));
  const z=feat.map(v=>Float64Array.from(v));for(let b=0;b<B;b++){const m=mean(z.map(v=>v[b]),0,nb),s=Math.sqrt(mean(z.map(v=>(v[b]-m)**2),0,nb))+1e-9;z.forEach(v=>v[b]=(v[b]-m)/s)}
  const avg=(i,j)=>{const v=new Float64Array(B);let n=0;for(let k=Math.max(0,i);k<Math.min(nb,j);k++){for(let b=0;b<B;b++)v[b]+=z[k][b];n++}return v.map(a=>a/(n||1))};
  const dist=(a,b)=>Math.sqrt(a.reduce((s,v,i)=>s+(v-b[i])**2,0)),snap=i=>{const r=((i-ph)%4+4)%4;return clamp(i+(r<=2?-r:4-r),0,nb-1)};
@@ -295,29 +297,34 @@ $('#clr').onclick=()=>{lib=[];drawPick()};
 function drawPick(){pick=lib.slice().sort(()=>Math.random()-.5).slice(0,MAXL);$('#thumbs').innerHTML='';$('#clr').disabled=!lib.length;$('#vc').textContent=lib.length?`(${pick.length}${lib.length>MAXL?' of '+lib.length+', the rest are skipped':''})`:''}
 
 /* ---------------- loop analysis (light version for phones) ---------------- */
-const seek=(v,t)=>new Promise(r=>{const f=()=>{v.removeEventListener('seeked',f);r()};v.addEventListener('seeked',f);v.currentTime=Math.min(t,Math.max(0,v.duration-.05))});
+const seek=(v,t)=>new Promise(r=>{let d=false;const f=()=>{if(d)return;d=true;v.removeEventListener('seeked',f);r(true)};v.addEventListener('seeked',f);setTimeout(()=>{if(!d){d=true;v.removeEventListener('seeked',f);r(false)}},4000);v.currentTime=Math.min(t,Math.max(0,v.duration-.05))});
 function hue(r,g,b){const mx=Math.max(r,g,b),mn=Math.min(r,g,b),d=mx-mn;if(d<.08)return -1;let h=mx==r?((g-b)/d)%6:mx==g?(b-r)/d+2:(r-g)/d+4;return((h*60+360)%360)/60|0}
 async function analyzeLoop(f,vid,wantFrame){
  const url=URL.createObjectURL(f);vid.src=url;
  try{await Promise.race([new Promise((r,j)=>{vid.onloadedmetadata=r;vid.onerror=()=>j(new Error('unreadable'))}),sleep(30000).then(()=>{throw new Error('timeout')})]);
-  const dur=vid.duration,n=clamp(Math.round(dur/10),4,8),dtp=Math.min(.3,dur/(n*3)),c=document.createElement('canvas');c.width=64;c.height=36;const g=c.getContext('2d',{willReadFrequently:true}),mot=[],acc=new Float64Array(13);let thumb='',frame=null;
-  for(let i=0;i<n;i++){const t=dur*(i+.5)/n;await seek(vid,t);g.drawImage(vid,0,0,64,36);const d=g.getImageData(0,0,64,36).data,gr=new Float32Array(2304);let R=0,G=0,B=0,sa=0,lu=0,lu2=0,ed=0;
+  try{await Promise.race([vid.play(),sleep(3000)]);vid.pause()}catch(e){}
+  for(let w=0;w<40&&vid.readyState<2;w++)await sleep(100);
+  const dur=vid.duration,n=clamp(Math.round(dur/10),4,8),dtp=Math.min(.3,dur/(n*3)),c=document.createElement('canvas');c.width=64;c.height=36;const g=c.getContext('2d',{willReadFrequently:true}),mot=[],acc=new Float64Array(13);let thumb='',frame=null,miss=0;
+  for(let i=0;i<n;i++){const t=dur*(i+.5)/n;if(!await seek(vid,t))miss++;g.drawImage(vid,0,0,64,36);const d=g.getImageData(0,0,64,36).data,gr=new Float32Array(2304);let R=0,G=0,B=0,sa=0,lu=0,lu2=0,ed=0;
    for(let p=0;p<2304;p++){const r=d[p*4]/255,gg=d[p*4+1]/255,b=d[p*4+2]/255,l=.3*r+.59*gg+.11*b;gr[p]=l;R+=r;G+=gg;B+=b;lu+=l;lu2+=l*l;const mx=Math.max(r,gg,b),mn=Math.min(r,gg,b);sa+=mx?(mx-mn)/mx:0;
     if(p%64)ed+=Math.abs(l-gr[p-1]);const h=hue(r,gg,b);if(h>=0)acc[7+h]+=mx-mn}
    acc[0]+=R/2304/n;acc[1]+=G/2304/n;acc[2]+=B/2304/n;acc[3]+=sa/2304/n;acc[4]+=lu/2304/n;acc[5]+=Math.sqrt(Math.max(0,lu2/2304-(lu/2304)**2))/n;acc[6]+=ed/2304/n;
    if(i==Math.floor(n/2)){thumb=c.toDataURL('image/jpeg',.6);if(wantFrame){const c2=document.createElement('canvas');c2.width=c2.height=224;const g2=c2.getContext('2d',{willReadFrequently:true});g2.drawImage(vid,0,0,224,224);frame=g2.getImageData(0,0,224,224)}}
-   await seek(vid,t+dtp);g.drawImage(vid,0,0,64,36);const d2=g.getImageData(0,0,64,36).data;let m=0;for(let p=0;p<2304;p++)m+=Math.abs((.3*d2[p*4]+.59*d2[p*4+1]+.11*d2[p*4+2])/255-gr[p]);mot.push(m/2304)}
-  const hs=acc.slice(7,13).reduce((a,b)=>a+b,0)||1,mm=mean(mot,0,mot.length),ms=Math.sqrt(mean(mot.map(x=>(x-mm)**2),0,mot.length));
+   if(!await seek(vid,t+dtp))miss++;g.drawImage(vid,0,0,64,36);const d2=g.getImageData(0,0,64,36).data;let m=0;for(let p=0;p<2304;p++)m+=Math.abs((.3*d2[p*4]+.59*d2[p*4+1]+.11*d2[p*4+2])/255-gr[p]);mot.push(m/2304)}
+  if(miss>n)throw new Error('unreadable');const hs=acc.slice(7,13).reduce((a,b)=>a+b,0)||1,mm=mean(mot,0,mot.length),ms=Math.sqrt(mean(mot.map(x=>(x-mm)**2),0,mot.length));
   return{file:f,name:f.name,dur,mm,v:[...acc.slice(0,7),...Array.from(acc.slice(7,13),x=>x/hs),mm,ms],thumb,frame};
  }finally{URL.revokeObjectURL(url)}
 }
 const loopCache=new Map();
 async function loopsFor(files,msg,clip){
  const need=files.filter(f=>{const c=loopCache.get(fkey(f));return !c||(clip&&!c.bad&&!c.emb)});
- if(need.length){const vids=[0,1].map(()=>{const v=document.createElement('video');v.muted=true;v.playsInline=true;v.setAttribute('playsinline','');v.preload='auto';v.style.cssText='position:fixed;left:-9999px;width:2px;height:2px';document.body.append(v);return v});
-  let next=0,done=0;await Promise.all(vids.map(async v=>{for(;;){const i=next++;if(i>=need.length)break;const f=need[i];try{loopCache.set(fkey(f),await analyzeLoop(f,v,clip))}catch(e){loopCache.set(fkey(f),{bad:true})}msg(`Looking at your loops ${++done}/${need.length}…`)}}));vids.forEach(v=>v.remove())}
+ if(need.length){const mkVid=()=>{const v=document.createElement('video');v.muted=true;v.playsInline=true;v.setAttribute('playsinline','');v.preload='auto';v.style.cssText='position:fixed;left:-9999px;width:2px;height:2px';document.body.append(v);return v},ws=[{v:mkVid()},{v:mkVid()}];
+  let next=0,done=0;msg(`Looking at your loops 0/${need.length}…`);
+  await Promise.all(ws.map(async w=>{for(;;){const i=next++;if(i>=need.length)break;const f=need[i];
+   try{loopCache.set(fkey(f),await Promise.race([analyzeLoop(f,w.v,clip),sleep(45000).then(()=>{throw new Error('timeout')})]))}
+   catch(e){loopCache.set(fkey(f),{bad:true});w.v.remove();w.v=mkVid()}msg(`Looking at your loops ${++done}/${need.length}…`)}}));ws.forEach(w=>w.v.remove())}
  const L=files.map(f=>loopCache.get(fkey(f))).filter(c=>c&&!c.bad),bad=files.length-L.length;
- if(!L.length)throw new Error('This phone could not read any of the videos. H.264 mp4 files work best.');
+ if(!L.length)throw new Error('This phone could not read any of the videos. H.264 mp4 files work best. Try fewer or shorter loops.');
  L.forEach(l=>{l.theme=null});return{L,bad};
 }
 
@@ -396,6 +403,7 @@ function renderJob(j,A,L,P){
 }
 
 /* ---------------- exports (queue) ---------------- */
+function lite(ab){const sr=ab.sampleRate;if(sr<=30000)return ab;const x=ab.getChannelData(0),n=x.length>>1,y=new Float32Array(n);for(let i=0;i<n;i++)y[i]=.5*(x[2*i]+x[2*i+1]);return{getChannelData:()=>y,sampleRate:sr/2,duration:ab.duration}}
 let jobs=[],jid=0,cur=null,running=false,AC=null,aCache={};
 const CH={waiting:'Waiting',preparing:'Preparing',rendering:'Making video',paused:'Paused',finalizing:'Finishing',done:'Done',failed:'Failed',stopped:'Stopped'};
 function card(j){const d=document.createElement('div');d.className='job';
@@ -426,7 +434,7 @@ async function runQueue(){if(running)return;running=true;
 async function doJob(j){
  const o=j.o,msg=m=>{j.msg=m;upd(j)};j.status='preparing';msg('Preparing…');
  const ak=fkey(j.audio)+'|'+o.secLen;if(aCache.key!=ak){const fk=fkey(j.audio);let buf=aCache.fk==fk?aCache.buf:null;
-  if(!buf){msg('Reading the music…');try{buf=await AC.decodeAudioData(await j.audio.arrayBuffer())}catch(e){throw new Error('This phone could not read the audio file. MP3, M4A and WAV usually work.')}}const A0=await analyzeAudio(buf,o.secLen,msg);A0.buf=buf;aCache={key:ak,fk,buf,A:A0}}
+  if(!buf){msg('Reading the music…');try{buf=await AC.decodeAudioData(await j.audio.arrayBuffer())}catch(e){throw new Error('This phone could not read the audio file. MP3, M4A and WAV usually work.')}}const A0=await analyzeAudio(lite(buf),o.secLen,msg);A0.buf=buf;aCache={key:ak,fk,buf,A:A0}}
  const A=aCache.A;j.dur=A.dur;if(j.cancel)throw new Error('Cancelled');
  const {L,bad}=await loopsFor(j.files,msg,o.clip);if(j.cancel)throw new Error('Cancelled');
  let useClip=o.clip;

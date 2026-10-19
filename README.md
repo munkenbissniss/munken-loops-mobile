@@ -22,7 +22,8 @@ The track is analysed for tempo, beats, song sections, breaks, drops and kick dr
 - **Format:** Safari (iPhone) and Chrome (Android) save MP4. A browser that can only save WebM shows a warning.
 - **AI matching (CLIP) is optional and off by default.** It downloads about 90 MB the first time (about 150 MB with a theme; use Wi-Fi), looks at one frame per loop, and is released again before the video is recorded to save memory. If the phone cannot run it, the app carries on with standard matching and says so on the export card.
 - **Fewer settings than the desktop version:** layers and the full advanced settings are in the [desktop version](https://github.com/munkenbissniss/munken-loops), which also has a command-line tool.
-- Works best in the latest Chrome (Android) or Safari (iOS 15 or newer).
+- Works best in the latest Chrome (Android) or Safari (iOS 15 or newer). On an iPhone every browser, including Chrome, uses Safari's engine, so Safari itself is the safest choice.
+- If loops cannot be read (some iPhone videos are slow to open), they are skipped after a timeout and the rest are used.
 
 ## Run it yourself
 
