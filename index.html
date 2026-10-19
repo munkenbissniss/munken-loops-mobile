@@ -28,7 +28,7 @@ input[type=text],input[type=number],select{font:inherit;width:100%;min-height:44
 .prog{height:10px;background:var(--line);border-radius:5px;overflow:hidden;margin:8px 0 2px}.prog i{display:block;height:100%;background:var(--b);width:0}.jt{width:100%;max-width:240px;aspect-ratio:16/9;background:#000;border-radius:8px;display:block;margin-top:8px}
 .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.acts>*{flex:1 1 130px}
 .bar{position:fixed;left:0;right:0;bottom:0;padding:10px 14px calc(10px + env(safe-area-inset-bottom));background:linear-gradient(transparent,var(--bg) 30%);}.bar button{width:100%;max-width:560px;display:flex;margin:0 auto;min-height:52px;font-size:1.05rem}
-#st{min-height:1.3em}#st.err{color:var(--bad)}.note{color:var(--warn);font-size:.85rem}
+#st{min-height:1.3em}.vh{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;overflow:hidden}#st.err{color:var(--bad)}.note{color:var(--warn);font-size:.85rem}
 </style>
 </head>
 <body><div class="wrap">
@@ -71,7 +71,7 @@ input[type=text],input[type=number],select{font:inherit;width:100%;min-height:44
  <p class="mute small">Keep this page open and the screen on while a video is made. It runs in real time, so a 4-minute track takes about 4 minutes. If you switch app, it pauses until you come back.</p></div>
 </div>
 <div class="bar"><button class="main" id="add">Make video</button></div>
-<input type="file" id="fA" accept="audio/*" hidden><input type="file" id="fV" accept="video/*" multiple hidden>
+<input type="file" id="fA" class="vh" aria-label="Choose music file"><input type="file" id="fV" class="vh" multiple accept="video/*,.mp4,.mov,.m4v,.webm,.mkv" aria-label="Choose video files">
 
 <script>
 /* CORE:START */
@@ -287,7 +287,9 @@ function opts(){const m=MOOD[ui.mood],o={...DEF,...PACE[ui.pace],fade:FADE[ui.fa
 const MAXL=24,isVid=f=>/^video\//.test(f.type)||/\.(mp4|mov|m4v|webm|mkv)$/i.test(f.name),fkey=f=>f.name+'|'+f.size+'|'+f.lastModified;
 let audio=null,lib=[],pick=[];const st=(m,e)=>{$('#st').textContent=m;$('#st').className=e?'err':'mute'};
 $('#bA').onclick=()=>$('#fA').click();$('#bV').onclick=()=>$('#fV').click();
-$('#fA').onchange=e=>{audio=e.target.files[0]||null;$('#an').textContent=audio?audio.name:'No file chosen';if(audio&&audio.size>40e6)st('This is a large track. Very long tracks can be too much for some phones.',0)};
+$('#fA').onchange=e=>{audio=e.target.files[0]||null;$('#an').textContent=audio?audio.name:'No file chosen';e.target.value='';
+ if(!audio)return;const looksAudio=/^audio\//.test(audio.type)||/\.(mp3|m4a|aac|wav|flac|ogg|opus|aif|aiff|caf|mp4)$/i.test(audio.name);
+ if(!looksAudio)st('This does not look like an audio file. The app will still try to read it.',0);else if(audio.size>40e6)st('This is a large track. Very long tracks can be too much for some phones.',0);else st('')};
 $('#fV').onchange=e=>{const have=new Set(lib.map(fkey));[...e.target.files].filter(isVid).forEach(f=>{if(!have.has(fkey(f))){have.add(fkey(f));lib.push(f)}});e.target.value='';drawPick()};
 $('#clr').onclick=()=>{lib=[];drawPick()};
 function drawPick(){pick=lib.slice().sort(()=>Math.random()-.5).slice(0,MAXL);$('#thumbs').innerHTML='';$('#clr').disabled=!lib.length;$('#vc').textContent=lib.length?`(${pick.length}${lib.length>MAXL?' of '+lib.length+', the rest are skipped':''})`:''}
@@ -424,7 +426,7 @@ async function runQueue(){if(running)return;running=true;
 async function doJob(j){
  const o=j.o,msg=m=>{j.msg=m;upd(j)};j.status='preparing';msg('Preparing…');
  const ak=fkey(j.audio)+'|'+o.secLen;if(aCache.key!=ak){const fk=fkey(j.audio);let buf=aCache.fk==fk?aCache.buf:null;
-  if(!buf){msg('Reading the music…');buf=await AC.decodeAudioData(await j.audio.arrayBuffer())}const A0=await analyzeAudio(buf,o.secLen,msg);A0.buf=buf;aCache={key:ak,fk,buf,A:A0}}
+  if(!buf){msg('Reading the music…');try{buf=await AC.decodeAudioData(await j.audio.arrayBuffer())}catch(e){throw new Error('This phone could not read the audio file. MP3, M4A and WAV usually work.')}}const A0=await analyzeAudio(buf,o.secLen,msg);A0.buf=buf;aCache={key:ak,fk,buf,A:A0}}
  const A=aCache.A;j.dur=A.dur;if(j.cancel)throw new Error('Cancelled');
  const {L,bad}=await loopsFor(j.files,msg,o.clip);if(j.cancel)throw new Error('Cancelled');
  let useClip=o.clip;
