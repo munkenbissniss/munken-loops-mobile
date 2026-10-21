@@ -48,3 +48,7 @@ An iPhone only plays videos from a web page when the page is visible and has bee
 ## Sound quality
 
 If your music is an MP3, the finished MP4 gets the **original MP3 audio** (no re-encoding, no tempo drift) instead of the live recording, and the picture is aligned and, if needed, stretched by a few percent so it ends exactly with the music. Other audio formats keep the recorded sound.
+
+## Memory and battery
+
+For an MP3 the app keeps only a small mono copy of the music in memory (about an eighth of the size of the decoded file) because the finished video gets the original MP3 as its sound. The recorded fallback audio uses a lower bit rate in that case. Picture quality, frame rate and the planner are unchanged.

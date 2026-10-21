@@ -467,12 +467,13 @@ function renderJob(j,A,L,P){
   const sink=await openSink(`${j.id}-${Date.now()}.${EXT}`);j.sink=sink;
   let useMp3=false;if(EXT=='mp4'&&(j.audio.type=='audio/mpeg'||/\.mp3$/i.test(j.audio.name)))try{await mp3Info(j.audio);useMp3=true}catch(e){}
   let lastM=0;
-  const rec=new MediaRecorder(new MediaStream([...cv.captureStream(o.fps).getVideoTracks(),...dest.stream.getAudioTracks()]),{mimeType:MIME,videoBitsPerSecond:o.bitrate*1e6,audioBitsPerSecond:160000});
+  const rec=new MediaRecorder(new MediaStream([...cv.captureStream(o.fps).getVideoTracks(),...dest.stream.getAudioTracks()]),{mimeType:MIME,videoBitsPerSecond:o.bitrate*1e6,audioBitsPerSecond:useMp3?64000:160000});
   rec.ondataavailable=e=>{if(e.data.size)sink.write(e.data)};
   let ended=false,blocked=0;const finish=async why=>{if(ended)return;ended=true;tickW.postMessage(0);wakeOff();try{localStorage.removeItem('mm_busy')}catch(e){}try{src.stop()}catch(e){}pool.forEach(p=>p.el.pause());
    await new Promise(r=>{rec.onstop=r;if(rec.state!='inactive')rec.stop();else r()});let f=await sink.close();
    if(EXT=='mp4'){j.status='finalizing';j.msg='Fixing duration and seeking…';upd(j);
     try{const s2=await openSink(`${j.id}-fixed-${Date.now()}.mp4`);const ok=await fixMp4(f,s2,p=>{j.msg=`Fixing duration and seeking… ${Math.round(p*100)} %`;upd(j)},useMp3?{mp3:j.audio,lead:tS-tRec,expected:why=='done'?A.dur:lastM}:null);
+     if(!useMp3&&A.small)j.note='The original MP3 could not be attached, so the sound is a lower-quality recording.';
      if(ok&&useMp3)j.note='The original MP3 is attached as the sound (not re-encoded), lined up with the picture.';
      if(ok){const f2=await s2.close();await sink.remove();j.sink=s2;f=f2}else await s2.remove()}catch(e){j.note='Could not fix the MP4 index. The original file is kept.'}}
    j.file=f instanceof File?f:new File([f],'mix.'+EXT,{type:MIME.split(';')[0]});j.url=URL.createObjectURL(j.file);j.status=why;j.prog=why=='done'?1:j.prog;j.msg='';upd(j);if(AC.state=='suspended')AC.resume();resolve()};
@@ -530,7 +531,10 @@ async function runQueue(){if(running)return;running=true;
  running=false}
 async function getAudio(file,secLen,msg){const ak=fkey(file)+'|'+secLen;if(aCache.key!=ak){const fk=fkey(file);let buf=aCache.fk==fk?aCache.buf:null;
  if(!buf){msg('Reading the music…');try{buf=await AC.decodeAudioData(await file.arrayBuffer())}catch(e){throw new Error('This phone could not read the audio file. MP3, M4A and WAV usually work.')}}
- const A0=await analyzeAudio(lite(buf),secLen,msg);A0.buf=buf;aCache={key:ak,fk,buf,A:A0}}return aCache.A}
+ // For an MP3 the finished MP4 gets the original file as its sound, so the app only needs a small mono copy (about 1/8 of the memory) for timing and as a fallback.
+ const small=EXT=='mp4'&&(file.type=='audio/mpeg'||/\.mp3$/i.test(file.name)),l=lite(buf),A0=await analyzeAudio(l,secLen,msg);let keep=buf;
+ if(small&&buf.numberOfChannels&&buf.length>l.getChannelData(0).length){const y=l.getChannelData(0);keep=AC.createBuffer(1,y.length,l.sampleRate);keep.copyToChannel(y,0)}
+ A0.buf=keep;A0.small=keep!==buf;aCache={key:ak,fk,buf:keep,A:A0}}return aCache.A}
 
 /* ---------------- Recommended mood: settings chosen from the music and the loops ---------------- */
 function recommendM(A,L,S){
