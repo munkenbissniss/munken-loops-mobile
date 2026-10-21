@@ -8,7 +8,7 @@ A simplified, phone-friendly version of [Munken Loops](https://github.com/munken
 
 1. **Choose track** (mp3 or similar, rhythmic music works best).
 2. **Choose videos.** Pick seamless loops from your gallery or files. Up to 24 are used, which keeps phones happy.
-3. **Style:** pick a mood (Ambient, Chill, Groove), how long each clip stays (Slow, Normal, Fast), the crossfade, and how many loops share each part of the song (2 or 3). *More options* has picture size, **frame rate (24, 30 or 60)**, orientation (portrait for vertical video), slow motion, breathing zoom, optional **smarter matching with AI (CLIP)** with an optional text theme, and a seed.
+3. **Style:** pick a mood (**Recommended**, Ambient, Chill, Groove), how long each clip stays (Slow, Normal, Fast), the crossfade, and how many loops share each part of the song (2 or 3). *More options* has picture size, **frame rate (24, 30 or 60)**, orientation (portrait for vertical video), slow motion, breathing zoom, optional **smarter matching with AI (CLIP)** with an optional text theme, and a seed.
 4. Press **Make video**. Progress, pause and stop are on the export card. When it is done, press **Download** or **Share / save**.
 
 ## What it does
@@ -21,7 +21,7 @@ The track is analysed for tempo, beats, song sections, breaks, drops and kick dr
 - **Memory:** iPhones close a page that uses too much memory, and the page then reloads by itself. To avoid that, the app uses at most three videos at once, releases the ones it no longer needs, stores the recording on disk (IndexedDB) instead of in memory, and defaults to 480p at 24 fps on iPhone. If the page still reloads, use a shorter track, fewer or smaller loops (1080p loops are much lighter than 4K), or 480p. After a reload the app tells you that it happened.
 - **Screen:** the screen must stay on. The app uses Wake Lock where the browser supports it, and otherwise plays a tiny invisible video, which also keeps an iPhone awake. If the screen still locks, switch off Auto-Lock in iPhone Settings -> Display & Brightness while you make a video.
 - **Format:** Safari (iPhone) and Chrome (Android) save MP4. A browser that can only save WebM shows a warning.
-- **AI matching (CLIP) is optional and off by default.** It downloads about 90 MB the first time (about 150 MB with a theme; use Wi-Fi) and looks at one frame per loop. It is heavy for a phone. To keep memory low it runs in a separate worker that is closed afterwards, and with AI matching on, the loops and the AI are handled *before* the music is decoded. If the AI cannot start, the app carries on with standard matching and says so on the export card. If the page reloads on its own while the AI runs, the phone ran out of memory: the app tells you after the reload, and you should switch it off or use fewer loops. Older iPhones may not be able to run it at all.
+- **AI matching (CLIP) is on by default.** It downloads about 90 MB the first time (about 150 MB with a theme; use Wi-Fi) and looks at one frame per loop. It is heavy for a phone. To keep memory low it runs in a separate worker that is closed afterwards, and the loops and the AI are handled *before* the music is decoded. If the AI cannot start, the app carries on with standard matching and says so on the export card. If the page reloads on its own while the AI runs, the phone ran out of memory: the app tells you after the reload, and you should switch AI matching off (More options) or use fewer loops.
 - **Fewer settings than the desktop version:** layers and the full advanced settings are in the [desktop version](https://github.com/munkenbissniss/munken-loops), which also has a command-line tool.
 - Works best in the latest Chrome (Android) or Safari (iOS 15 or newer). On an iPhone every browser, including Chrome, uses Safari's engine, so Safari itself is the safest choice.
 - If loops cannot be read (some iPhone videos are slow to open), they are skipped after a timeout and the rest are used.
@@ -35,3 +35,12 @@ To try it locally: `python3 -m http.server` in this folder, then open http://loc
 ## License
 
 MIT
+
+## Recommended, and the new defaults
+
+- **Recommended** analyses the music (tempo, beat steadiness, energy, drops, kick drums) and your loops (how much they move, how alike they look) and sets the mood, clip length, crossfade, loops per section and effects. A short explanation is shown under the mood buttons. Tap Pace, Crossfade or Loops per part afterwards to override that single setting.
+- **Defaults:** 60 fps, AI matching (CLIP) on, and the brightness pulse dips dark. Choose 30 or 24 fps under *More options* if the phone struggles.
+
+## If videos stand still or analysis does not start (iPhone)
+
+An iPhone only plays videos from a web page when the page is visible and has been allowed by a tap, and **Low Power Mode blocks video playback completely**. The app therefore keeps its video elements in view, unlocks them when you tap *Make video* (or *Recommended*), starts reading each loop immediately, skips a loop that does not open in time, and stops with a clear message if none can be read. While making a video it watches for pictures that stop moving: it reloads that loop, and if the phone keeps refusing it pauses and asks you to turn off Low Power Mode and tap *Resume*.
