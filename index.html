@@ -199,8 +199,29 @@ function plan(A,L,S,o,rnd){
  return{slots,layers,looks,coverage:{used:a.filter(x=>x>0).length,total:n}};
 }
 /* CORE:END */
-/* REMUX:START — rewrites a fragmented MP4 (as made by MediaRecorder) into a regular MP4 with correct duration, index and seeking. No re-encoding. */
-async function fixMp4(file,sink,progress){
+/* REMUX:START — rewrites a fragmented MP4 (as made by MediaRecorder) into a regular MP4 with correct duration, index and seeking. No re-encoding.
+   With opts.mp3 the recorded (and possibly stretched) audio is dropped and the ORIGINAL MP3 frames are put in as the audio track, sample exact.
+   The picture is then lined up with it: opts.lead = seconds from the start of the recording to music time 0, opts.expected = seconds of music that were rendered.
+   If the recorded video is a little longer or shorter than that (clock drift), its timeline is stretched to fit the music, so picture and sound end together. */
+async function mp3Info(file){
+ const b=new Uint8Array(await file.arrayBuffer()),n=b.length,BR1=[0,32,40,48,56,64,80,96,112,128,160,192,224,256,320],BR2=[0,8,16,24,32,40,48,56,64,80,96,112,128,144,160],SR={3:[44100,48000,32000],2:[22050,24000,16000],0:[11025,12000,8000]};
+ let p=0;if(n>10&&b[0]==73&&b[1]==68&&b[2]==51){p=10+(((b[6]&127)<<21)|((b[7]&127)<<14)|((b[8]&127)<<7)|(b[9]&127));if(b[5]&16)p+=10}
+ const hdr=i=>{if(i+4>n||b[i]!=255||(b[i+1]&224)!=224)return null;const ver=(b[i+1]>>3)&3,lay=(b[i+1]>>1)&3,bri=b[i+2]>>4,sri=(b[i+2]>>2)&3,pad=(b[i+2]>>1)&1;
+  if(ver==1||lay!=1||bri==0||bri==15||sri==3)return null;const sr=SR[ver][sri],br=(ver==3?BR1:BR2)[bri]*1000;return{ver,sr,br,spf:ver==3?1152:576,len:Math.floor((ver==3?144:72)*br/sr)+pad,ch:(b[i+3]>>6)==3?1:2,prot:b[i+1]&1}};
+ const ok=i=>{const h=hdr(i);return h&&(i+h.len>=n-128||hdr(i+h.len))?h:null};
+ let first=null;for(;p+4<=n;p++){const h=ok(p);if(h){first=h;break}}if(!first)throw new Error('This is not an MP3 file');
+ const frames=[];let delay=0,padd=0,tagSeen=false;
+ while(p+4<=n){const h=hdr(p);if(!h){let q=p+1;for(;q+4<=n;q++)if(ok(q))break;if(q+4>n)break;p=q;continue}
+  if(p+h.len>n)break;if(h.sr!=first.sr||h.ver!=first.ver){p+=h.len;continue}
+  if(!tagSeen){tagSeen=true;const si=h.ver==3?(h.ch==1?17:32):(h.ch==1?9:17),o=p+4+(h.prot?0:2)+si,tg=String.fromCharCode(b[o],b[o+1],b[o+2],b[o+3]),vb=String.fromCharCode(b[p+36],b[p+37],b[p+38],b[p+39]);
+   if(tg=='Xing'||tg=='Info'||vb=='VBRI'){if(tg!='VBRI'){const d=new DataView(b.buffer,b.byteOffset);let x=o+4;const fl=d.getUint32(x);x+=4;if(fl&1)x+=4;if(fl&2)x+=4;if(fl&4)x+=100;if(fl&8)x+=4;
+     if(b[x]>=32&&b[x]<127&&b[x+1]>=32&&b[x+1]<127){delay=(b[x+21]<<4)|(b[x+22]>>4);padd=((b[x+22]&15)<<8)|b[x+23]}}p+=h.len;continue}}
+  frames.push({pos:p,len:h.len});p+=h.len}
+ if(!frames.length)throw new Error('No MP3 audio frames found');
+ let bytes=0;frames.forEach(f=>bytes+=f.len);
+ return{sr:first.sr,ch:first.ch,spf:first.spf,ver:first.ver,frames,skip:delay?delay+529:0,endTrim:padd>529?padd-529:0,br:first.br,avgBr:Math.round(bytes*8/(frames.length*first.spf/first.sr))};
+}
+async function fixMp4(file,sink,progress,opts){
  const fcc=(d,o)=>String.fromCharCode(d.getUint8(o),d.getUint8(o+1),d.getUint8(o+2),d.getUint8(o+3));
  const top=[];for(let pos=0;pos+8<=file.size;){const d=new DataView(await file.slice(pos,pos+16).arrayBuffer());let size=d.getUint32(0),hdr=8;
   if(size==1){size=Number(d.getBigUint64(8));hdr=16}else if(size==0)size=file.size-pos;if(size<hdr)break;top.push({type:fcc(d,4),pos,size:Math.min(size,file.size-pos),hdr});pos+=size}
@@ -212,7 +233,7 @@ async function fixMp4(file,sink,progress){
  const trex={};kids(M,mvex.s+mvex.h,mvex.e).filter(b=>b.type=='trex').forEach(b=>{const o=b.s+b.h+4;trex[M.getUint32(o)]={dur:M.getUint32(o+8),size:M.getUint32(o+12),flags:M.getUint32(o+16)}});
  const T={};mk.filter(b=>b.type=='trak').forEach(tb=>{const tk=kids(M,tb.s+tb.h,tb.e),tkhd=find(tk,'tkhd'),md=find(tk,'mdia'),mc=kids(M,md.s+md.h,md.e),mdhd=find(mc,'mdhd'),hdlr=find(mc,'hdlr'),minf=find(mc,'minf'),mi=kids(M,minf.s+minf.h,minf.e),stbl=find(mi,'stbl'),st=kids(M,stbl.s+stbl.h,stbl.e),
   id=M.getUint32(tkhd.s+tkhd.h+(moov[tkhd.s+tkhd.h]?20:12)),ts=M.getUint32(mdhd.s+mdhd.h+(moov[mdhd.s+mdhd.h]?20:12));
-  T[id]={id,tb,tk,tkhd,md,mc,mdhd,minf,mi,stsd:find(st,'stsd'),ts,video:fcc(M,hdlr.s+hdlr.h+8)=='vide',dur:[],size:[],sync:[],cto:[],chunks:[],start:null,ctoNeg:false}});
+  T[id]={id,tb,tk,tkhd,md,mc,mdhd,minf,mi,stsd:find(st,'stsd'),ts,video:fcc(M,hdlr.s+hdlr.h+8)=='vide',kind:fcc(M,hdlr.s+hdlr.h+8),dur:[],size:[],sync:[],cto:[],chunks:[],start:null,ctoNeg:false}});
  // read every fragment
  for(const mf of top.filter(b=>b.type=='moof')){
   const buf=new Uint8Array(await file.slice(mf.pos,mf.pos+mf.size).arrayBuffer()),D=new DataView(buf.buffer),trafs=kids(D,mf.hdr,buf.length).filter(b=>b.type=='traf'),add=[];let bad=false;
@@ -230,47 +251,80 @@ async function fixMp4(file,sink,progress){
   if(bad)break;
   for(const a of add){const tr=a.tr,i0=tr.size.length;if(tr.start===null&&a.tdt!==null)tr.start=a.tdt;a.S.sync.forEach((s,i)=>{if(s)tr.sync.push(tr.size.length+i+1)});
    a.S.dur.forEach(x=>tr.dur.push(x));a.S.size.forEach(x=>tr.size.push(x));a.S.cto.forEach(x=>{tr.cto.push(x);if(x<0)tr.ctoNeg=true});tr.chunks.push({pos:a.pos,len:a.len,n:a.S.size.length,tdt:a.tdt,i0})}}
- const tracks=Object.values(T).filter(t=>t.size.length);if(!tracks.length)return false;
+ let tracks=Object.values(T).filter(t=>t.size.length);if(!tracks.length)return false;
+ let aud=null;if(opts&&opts.mp3){aud={info:await mp3Info(opts.mp3)};tracks=tracks.filter(t=>t.kind!='soun');if(!tracks.length)return false}
  // where a fragment's sample durations are missing (zero), derive them from the next fragment's timestamp (tfdt)
  tracks.forEach(t=>t.chunks.forEach((c,i)=>{const nx=t.chunks[i+1];if(c.tdt==null||!nx||nx.tdt==null)return;const exp=nx.tdt-c.tdt;if(exp<=0)return;let sum=0,zero=false;for(let k=c.i0;k<c.i0+c.n;k++){sum+=t.dur[k];if(!t.dur[k])zero=true}if(!zero||sum===exp)return;
   let acc=0;for(let k=c.i0;k<c.i0+c.n;k++){const v=k==c.i0+c.n-1?exp-acc:Math.round(sum>0?t.dur[k]*exp/sum:exp/c.n);t.dur[k]=v;acc+=v}}));
  // samples without a usable duration get the most common one, so time never stands still
  tracks.forEach(t=>{const cnt={};t.dur.forEach(d=>{if(d>0)cnt[d]=(cnt[d]||0)+1});const best=Object.keys(cnt).sort((x,y)=>cnt[y]-cnt[x])[0];if(best)t.dur=t.dur.map(d=>d>0?d:+best)});
- // layout of media data: original order
- const all=tracks.flatMap(t=>t.chunks).sort((a,b)=>a.pos-b.pos);let total=0;all.forEach(c=>{c.rel=total;total+=c.len});
+ const u16=n=>Uint8Array.from([(n>>8)&255,n&255]),u32s=a=>{const o=new Uint8Array(a.length*4),d=new DataView(o.buffer);a.forEach((v,i)=>d.setUint32(i*4,v>>>0));return o};
  const u32=n=>{const b=new Uint8Array(4);new DataView(b.buffer).setUint32(0,n>>>0);return b},i32=n=>{const b=new Uint8Array(4);new DataView(b.buffer).setInt32(0,n);return b},
   u64=n=>{const b=new Uint8Array(8);new DataView(b.buffer).setBigUint64(0,BigInt(n));return b},cat=(...a)=>{const o=new Uint8Array(a.reduce((s,x)=>s+x.length,0));let p=0;a.forEach(x=>{o.set(x,p);p+=x.length});return o},
   box=(t,...p)=>{const b=cat(...p);return cat(u32(8+b.length),Uint8Array.from(t,c=>c.charCodeAt(0)),b)},fbox=(t,v,fl,...p)=>box(t,u32((v<<24)|fl),...p);
- const t0=Math.min(...tracks.map(t=>(t.start||0)/t.ts));
- const mdur=t=>t.dur.reduce((a,b)=>a+b,0),offs=t=>(t.start||0)/t.ts-t0;
- const movDur=Math.max(...tracks.map(t=>Math.round((mdur(t)/t.ts+offs(t))*movTs)));
+
+ const t0=Math.min(...tracks.map(t=>(t.start||0)/t.ts)),mdur=t=>t.dur.reduce((a,b)=>a+b,0);let offs=t=>(t.start||0)/t.ts-t0,A3=null,syncInfo=null;
+ if(aud){
+  const m3=aud.info,sr=m3.sr,vt=tracks.find(t=>t.video),lead=Math.max(0,opts.lead||0),exp0=opts.expected>0?opts.expected:0;
+  const playable=Math.max(0,m3.frames.length*m3.spf-m3.skip-m3.endTrim)/sr,aPlay=Math.min(playable,exp0>0?exp0:playable);
+  let gap=0,mtSec=0,vSeg=0,scale=1;
+  if(vt){const vstart=(vt.start||0)/vt.ts,span=vstart+mdur(vt)/vt.ts-lead;scale=exp0>0&&span>0?exp0/span:1;if(!(scale>.9&&scale<1.1)||Math.abs(scale-1)<.0004)scale=1;
+   if(scale!=1){let acc=0,accS=0;vt.dur=vt.dur.map(d=>{acc+=d;const tt=Math.round(acc*scale),r=tt-accS;accS=tt;return Math.max(1,r)});vt.cto=vt.cto.map(c=>Math.round(c*scale))}
+   gap=Math.max(0,(vstart-lead)*scale);mtSec=Math.max(0,(lead-vstart)*scale);
+   {const have=vt.dur.length?mdur(vt)/vt.ts-mtSec:0,want=Math.min(aPlay,exp0>0?exp0:aPlay)-gap;if(vt.dur.length&&want>have+.05)vt.dur[vt.dur.length-1]+=Math.round((want-have)*vt.ts)}   // the recorder stopped early: hold the last picture
+vSeg=Math.max(0,mdur(vt)/vt.ts-mtSec);if(exp0>0)vSeg=Math.min(vSeg,aPlay);
+   vt.edit={gap,mt:Math.round(mtSec*vt.ts),seg:vSeg};
+   let cum=0;vt.chunks.forEach(c=>{c.f=file;c.time=gap+cum/vt.ts-mtSec;for(let k=c.i0;k<c.i0+c.n;k++)cum+=vt.dur[k]})}
+  // keep only the MP3 frames that are needed
+  const need=Math.min(m3.frames.length,Math.ceil((m3.skip+aPlay*sr)/m3.spf)+2),fr=m3.frames.slice(0,need),per=Math.max(1,Math.round(.5*sr/m3.spf)),chunks=[];
+  for(let i=0;i<fr.length;){let j=i+1;while(j<fr.length&&j-i<per&&fr[j].pos==fr[j-1].pos+fr[j-1].len)j++;const last=fr[j-1];chunks.push({f:opts.mp3,pos:fr[i].pos,len:last.pos+last.len-fr[i].pos,n:j-i,time:Math.max(0,(i*m3.spf-m3.skip)/sr)});i=j}
+  A3={m3,fr,chunks,dur:aPlay};syncInfo={scale,gap,aPlay,vSeg,lead,expected:exp0};
+ }
+ const all=aud?[...tracks.flatMap(t=>t.chunks),...A3.chunks].sort((a,b)=>a.time-b.time||(a.f===file?-1:1)):tracks.flatMap(t=>t.chunks).sort((a,b)=>a.pos-b.pos);let total=0;all.forEach(c=>{c.rel=total;total+=c.len});
+ const vtr=aud?tracks.find(t=>t.video):null,vEnd=vtr?vtr.edit.gap+vtr.edit.seg:0,movDur=aud?Math.round(Math.max(vEnd,A3.dur)*movTs):Math.max(...tracks.map(t=>Math.round((mdur(t)/t.ts+offs(t))*movTs)));
  const setDur=(bytes,off,v8,val)=>{const d=new DataView(bytes.buffer,bytes.byteOffset);if(v8)d.setBigUint64(off,BigInt(val));else d.setUint32(off,val)};
- const co64=total+(moov.length*3)+8*tracks.reduce((a,t)=>a+t.chunks.length,0)+16>0xFFFFFFFF;
+ const co64=total+(moov.length*3)+8*(tracks.reduce((a,t)=>a+t.chunks.length,0)+(A3?A3.chunks.length:0))+16>0xFFFFFFFF;
  const buildMoov=base=>{
   const trs=tracks.map(t=>{
    const runs=(arr,key)=>{const o=[];arr.forEach(v=>{const l=o[o.length-1];if(l&&l[1]===v)l[0]++;else o.push([1,v])});return o};
    const sd=runs(t.dur),sttsB=fbox('stts',0,0,u32(sd.length),...sd.map(([c,d])=>cat(u32(c),u32(d))));
    const hasC=t.cto.some(x=>x!==0),cd=runs(t.cto),cttsB=hasC?fbox('ctts',t.ctoNeg?1:0,0,u32(cd.length),...cd.map(([c,d])=>cat(u32(c),i32(d)))):new Uint8Array(0);
-   const stssB=t.video&&t.sync.length<t.size.length?fbox('stss',0,0,u32(t.sync.length),...t.sync.map(u32)):new Uint8Array(0);
+   const stssB=t.video&&t.sync.length<t.size.length?fbox('stss',0,0,u32(t.sync.length),u32s(t.sync)):new Uint8Array(0);
    const sc=[];t.chunks.forEach((c,i)=>{const l=sc[sc.length-1];if(!l||l[1]!==c.n)sc.push([i+1,c.n])});
    const stscB=fbox('stsc',0,0,u32(sc.length),...sc.map(([f,n])=>cat(u32(f),u32(n),u32(1))));
-   const stszB=fbox('stsz',0,0,u32(0),u32(t.size.length),...t.size.map(u32));
-   const stcoB=co64?fbox('co64',0,0,u32(t.chunks.length),...t.chunks.map(c=>u64(base+c.rel))):fbox('stco',0,0,u32(t.chunks.length),...t.chunks.map(c=>u32(base+c.rel)));
+   const stszB=fbox('stsz',0,0,u32(0),u32(t.size.length),u32s(t.size));
+   const stcoB=co64?fbox('co64',0,0,u32(t.chunks.length),...t.chunks.map(c=>u64(base+c.rel))):fbox('stco',0,0,u32(t.chunks.length),u32s(t.chunks.map(c=>base+c.rel)));
    const stbl=box("stbl",moov.slice(t.stsd.s,t.stsd.e),sttsB,cttsB,stssB,stscB,stszB,stcoB);
    const minf=box('minf',...t.mi.filter(b=>b.type!='stbl').map(b=>moov.slice(b.s,b.e)),stbl);
    const mdhd=moov.slice(t.mdhd.s,t.mdhd.e),m8=moov[t.mdhd.s+t.mdhd.h];setDur(mdhd,t.mdhd.h+(m8?24:16),m8,mdur(t));
    const mdia=box('mdia',mdhd,...t.mc.filter(b=>b.type!='mdhd'&&b.type!='minf').map(b=>moov.slice(b.s,b.e)),minf);
-   const tkhd=moov.slice(t.tkhd.s,t.tkhd.e),k8=moov[t.tkhd.s+t.tkhd.h],o=offs(t),segDur=Math.round(mdur(t)/t.ts*movTs);setDur(tkhd,t.tkhd.h+(k8?28:20),k8,Math.round((mdur(t)/t.ts+o)*movTs));
-   const edts=o>.002?box('edts',fbox('elst',0,0,u32(2),u32(Math.round(o*movTs)),i32(-1),u32(0x10000),u32(segDur),i32(0),u32(0x10000))):new Uint8Array(0);
+   const tkhd=moov.slice(t.tkhd.s,t.tkhd.e),k8=moov[t.tkhd.s+t.tkhd.h];let edts;
+   if(aud&&t.edit){const e=t.edit,segM=Math.round(e.seg*movTs),parts=[];if(e.gap>.0005)parts.push(cat(u32(Math.round(e.gap*movTs)),i32(-1),u32(0x10000)));parts.push(cat(u32(segM),i32(e.mt),u32(0x10000)));
+    setDur(tkhd,t.tkhd.h+(k8?28:20),k8,Math.round((e.gap+e.seg)*movTs));edts=box('edts',fbox('elst',0,0,u32(parts.length),...parts))}
+   else{const o=offs(t),segDur=Math.round(mdur(t)/t.ts*movTs);setDur(tkhd,t.tkhd.h+(k8?28:20),k8,Math.round((mdur(t)/t.ts+o)*movTs));
+    edts=o>.002?box('edts',fbox('elst',0,0,u32(2),u32(Math.round(o*movTs)),i32(-1),u32(0x10000),u32(segDur),i32(0),u32(0x10000))):new Uint8Array(0)}
    return box('trak',tkhd,edts,...t.tk.filter(b=>!['tkhd','mdia','edts'].includes(b.type)).map(b=>moov.slice(b.s,b.e)),mdia)});
+  const aud3=A3?(()=>{const m3=A3.m3,sr=m3.sr,nS=A3.fr.length,id=Math.max(...tracks.map(t=>t.id))+1,oti=m3.ver==3?0x6B:0x69,ch=A3.chunks,
+   esd=Uint8Array.from([3,128,128,128,27,0,0,0,4,128,128,128,13,oti,0x15,0,0,0,...u32(m3.br),...u32(m3.avgBr),6,128,128,128,1,2]),
+   stsd=fbox('stsd',0,0,u32(1),box('mp4a',new Uint8Array(6),u16(1),u32(0),u32(0),u16(m3.ch),u16(16),u16(0),u16(0),u32(sr*65536),fbox('esds',0,0,esd))),
+   sc=[];ch.forEach((c,i)=>{const l=sc[sc.length-1];if(!l||l[1]!==c.n)sc.push([i+1,c.n])});
+   const stbl=box('stbl',stsd,fbox('stts',0,0,u32(1),u32(nS),u32(m3.spf)),fbox('stsc',0,0,u32(sc.length),...sc.map(([f,n])=>cat(u32(f),u32(n),u32(1)))),fbox('stsz',0,0,u32(0),u32(nS),u32s(A3.fr.map(f=>f.len))),
+    co64?fbox('co64',0,0,u32(ch.length),...ch.map(c=>u64(base+c.rel))):fbox('stco',0,0,u32(ch.length),u32s(ch.map(c=>base+c.rel)))),
+   minf=box('minf',fbox('smhd',0,0,u32(0)),box('dinf',fbox('dref',0,0,u32(1),fbox('url ',0,1))),stbl),
+   mdhd=fbox('mdhd',0,0,u32(0),u32(0),u32(sr),u32(nS*m3.spf),u16(0x55C4),u16(0)),
+   hdlr=fbox('hdlr',0,0,u32(0),Uint8Array.from('soun',c=>c.charCodeAt(0)),new Uint8Array(12),Uint8Array.from('SoundHandler\0',c=>c.charCodeAt(0))),
+   segDur=Math.round(A3.dur*movTs),
+   tkhd=fbox('tkhd',0,3,u32(0),u32(0),u32(id),u32(0),u32(segDur),new Uint8Array(8),u16(0),u16(0),u16(0x0100),u16(0),u32(0x10000),new Uint8Array(12),u32(0x10000),new Uint8Array(12),u32(0x40000000),u32(0),u32(0)),
+   edts=box('edts',fbox('elst',0,0,u32(1),u32(segDur),i32(m3.skip),u32(0x10000)));
+   return box('trak',tkhd,edts,box('mdia',mdhd,hdlr,minf))})():new Uint8Array(0);
   const mh=moov.slice(mvhd.s,mvhd.e);setDur(mh,mvhd.h+(mv?24:16),mv,movDur);
-  return box('moov',mh,...trs,...mk.filter(b=>!['mvhd','trak','mvex'].includes(b.type)).map(b=>moov.slice(b.s,b.e)))};
+  return box('moov',mh,...trs,aud3,...mk.filter(b=>!['mvhd','trak','mvex'].includes(b.type)).map(b=>moov.slice(b.s,b.e)))};
  const ftyp=box('ftyp',Uint8Array.from('isom',c=>c.charCodeAt(0)),u32(512),...['isom','iso2','avc1','mp41'].map(s=>Uint8Array.from(s,c=>c.charCodeAt(0))));
  const big=total+8>0xFFFFFFFF,mh=big?cat(u32(1),Uint8Array.from('mdat',c=>c.charCodeAt(0)),u64(total+16)):cat(u32(total+8),Uint8Array.from('mdat',c=>c.charCodeAt(0)));
  const size0=buildMoov(0).length,moov2=buildMoov(ftyp.length+size0+mh.length);
  sink.write(new Blob([ftyp,moov2,mh]));
- let i=0,done=0;while(i<all.length){let a=all[i],end=a.pos+a.len,j=i+1;while(j<all.length&&all[j].pos==end){end+=all[j].len;j++}sink.write(file.slice(a.pos,end));done+=end-a.pos;i=j;if(progress&&i%40==0)progress(done/total)}
- return true}
+ let i=0,done=0;while(i<all.length){let a=all[i],end=a.pos+a.len,j=i+1;while(j<all.length&&all[j].pos==end&&all[j].f===a.f){end+=all[j].len;j++}sink.write((a.f||file).slice(a.pos,end));done+=end-a.pos;i=j;if(progress&&i%40==0)progress(done/total)}
+ return aud?syncInfo:true}
 /* REMUX:END */
 
 
@@ -411,18 +465,21 @@ function renderJob(j,A,L,P){
   for(let i=0;i<100;i++){ensure(0,0);const h=holder(slots[0].loop);if(h&&h.el.readyState>=2)break;await sleep(100)}
   const dest=AC.createMediaStreamDestination(),src=AC.createBufferSource();src.buffer=A.buf;src.connect(dest);
   const sink=await openSink(`${j.id}-${Date.now()}.${EXT}`);j.sink=sink;
+  let useMp3=false;if(EXT=='mp4'&&(j.audio.type=='audio/mpeg'||/\.mp3$/i.test(j.audio.name)))try{await mp3Info(j.audio);useMp3=true}catch(e){}
+  let lastM=0;
   const rec=new MediaRecorder(new MediaStream([...cv.captureStream(o.fps).getVideoTracks(),...dest.stream.getAudioTracks()]),{mimeType:MIME,videoBitsPerSecond:o.bitrate*1e6,audioBitsPerSecond:160000});
   rec.ondataavailable=e=>{if(e.data.size)sink.write(e.data)};
   let ended=false,blocked=0;const finish=async why=>{if(ended)return;ended=true;tickW.postMessage(0);wakeOff();try{localStorage.removeItem('mm_busy')}catch(e){}try{src.stop()}catch(e){}pool.forEach(p=>p.el.pause());
    await new Promise(r=>{rec.onstop=r;if(rec.state!='inactive')rec.stop();else r()});let f=await sink.close();
    if(EXT=='mp4'){j.status='finalizing';j.msg='Fixing duration and seeking…';upd(j);
-    try{const s2=await openSink(`${j.id}-fixed-${Date.now()}.mp4`);const ok=await fixMp4(f,s2,p=>{j.msg=`Fixing duration and seeking… ${Math.round(p*100)} %`;upd(j)});
+    try{const s2=await openSink(`${j.id}-fixed-${Date.now()}.mp4`);const ok=await fixMp4(f,s2,p=>{j.msg=`Fixing duration and seeking… ${Math.round(p*100)} %`;upd(j)},useMp3?{mp3:j.audio,lead:tS-tRec,expected:why=='done'?A.dur:lastM}:null);
+     if(ok&&useMp3)j.note='The original MP3 is attached as the sound (not re-encoded), lined up with the picture.';
      if(ok){const f2=await s2.close();await sink.remove();j.sink=s2;f=f2}else await s2.remove()}catch(e){j.note='Could not fix the MP4 index. The original file is kept.'}}
    j.file=f instanceof File?f:new File([f],'mix.'+EXT,{type:MIME.split(';')[0]});j.url=URL.createObjectURL(j.file);j.status=why;j.prog=why=='done'?1:j.prog;j.msg='';upd(j);if(AC.state=='suspended')AC.resume();resolve()};
   j.ctl={pause:async()=>{if(j.status!='rendering')return;j.status='paused';await AC.suspend();rec.state=='recording'&&rec.pause();pool.forEach(p=>p.el.pause());upd(j)},
    resume:async()=>{if(j.status!='paused')return;j.status='rendering';j.msg='';j.note='';blocked=0;rec.state=='paused'&&rec.resume();await AC.resume();wakeOn();upd(j)},stop:()=>{if(j.status=='paused')AC.resume();finish('stopped')}};
-  const tS=AC.currentTime+.3;src.start(tS);rec.start(1000);wakeOn();try{localStorage.setItem('mm_busy','1')}catch(e){}j.status='rendering';j.msg='';upd(j);let lastUI=0,lastRate=0;
-  tickW.onmessage=()=>{if(ended||j.status!='rendering')return;const m=AC.currentTime-tS;if(m<0)return;if(m>=A.dur){finish('done');return}
+  const tS=AC.currentTime+.3,tRec=AC.currentTime;src.start(tS);rec.start(1000);wakeOn();try{localStorage.setItem('mm_busy','1')}catch(e){}j.status='rendering';j.msg='';upd(j);let lastUI=0,lastRate=0;
+  tickW.onmessage=()=>{if(ended||j.status!='rendering')return;const m=AC.currentTime-tS;if(m<0)return;lastM=m;if(m>=A.dur){finish('done');return}
    const k=findK(m);ensure(m,k);const s=slots[k],since=m-ta[k],bo=s.kind=='drop'?1.6:1,e=eAt(m),react=1-o.reactive+o.reactive*Math.min(1.4,e*1.6),look=looks[s.cluster],pl=k>0?looks[slots[k-1].cluster]:look,fx=s.xf>0&&since<s.xf?ease(since/s.xf):1;
    const vis=visible(m,k),nowT=performance.now();for(const p of pool)if(p.loop>=0){const want=vis.has(p.loop);
     if(want&&p.el.paused&&p.el.readyState>=2){const pr=p.el.play();pr&&pr.catch(err=>{if(err&&err.name=='NotAllowedError')blocked++})}else if(!want&&!p.el.paused)p.el.pause();

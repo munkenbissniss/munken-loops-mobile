@@ -44,3 +44,7 @@ MIT
 ## If videos stand still or analysis does not start (iPhone)
 
 An iPhone only plays videos from a web page when the page is visible and has been allowed by a tap, and **Low Power Mode blocks video playback completely**. The app therefore keeps its video elements in view, unlocks them when you tap *Make video* (or *Recommended*), starts reading each loop immediately, skips a loop that does not open in time, and stops with a clear message if none can be read. While making a video it watches for pictures that stop moving: it reloads that loop, and if the phone keeps refusing it pauses and asks you to turn off Low Power Mode and tap *Resume*.
+
+## Sound quality
+
+If your music is an MP3, the finished MP4 gets the **original MP3 audio** (no re-encoding, no tempo drift) instead of the live recording, and the picture is aligned and, if needed, stretched by a few percent so it ends exactly with the music. Other audio formats keep the recorded sound.
