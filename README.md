@@ -52,3 +52,7 @@ If your music is an MP3, the finished MP4 gets the **original MP3 audio** (no re
 ## Memory and battery
 
 For an MP3 the app keeps only a small mono copy of the music in memory (about an eighth of the size of the decoded file) because the finished video gets the original MP3 as its sound. The recorded fallback audio uses a lower bit rate in that case. Picture quality, frame rate and the planner are unchanged.
+
+## Upload straight to Vimeo (optional)
+
+Open **Upload to Vimeo (optional)** in the app, paste a personal access token and choose who can watch. Create the token at developer.vimeo.com (Create an app, then Generate an access token with the scopes `upload`, `edit` and `private`). Optionally add a showcase number to put every upload in that showcase. When a video is finished, press **Upload to Vimeo**. The file goes from your browser straight to Vimeo (resumable upload in 16 MB parts, with retries); there is no server in between. The token is stored only in your browser. Your Vimeo plan's upload quota applies. Tested against a simulated Vimeo server; if your browser blocks the direct calls, download the video and upload it on vimeo.com instead.
