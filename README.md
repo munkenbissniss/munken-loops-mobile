@@ -56,3 +56,7 @@ For an MP3 the app keeps only a small mono copy of the music in memory (about an
 ## Upload straight to Vimeo (optional)
 
 Open **Upload to Vimeo (optional)** in the app, paste a personal access token and choose who can watch. Create the token at developer.vimeo.com (Create an app, then Generate an access token with the scopes `upload`, `edit` and `private`). Optionally add a showcase number to put every upload in that showcase. When a video is finished, press **Upload to Vimeo**. The file goes from your browser straight to Vimeo (resumable upload in 16 MB parts, with retries); there is no server in between. The token is stored only in your browser. Your Vimeo plan's upload quota applies. Tested against a simulated Vimeo server; if your browser blocks the direct calls, download the video and upload it on vimeo.com instead.
+
+## Storage on the phone
+
+Videos are written to the browser's private storage while they are made, and kept there until you press **Remove** on them (download first). If the page is closed or reloaded in the middle of a run, the leftover files are deleted automatically the next time the page opens. Under **Storage on this phone** you can see how much space the page uses, delete everything it stored, or delete the downloaded AI model (it is cached in the browser and is only downloaded again if you delete it or clear Chrome's cached files).

@@ -70,6 +70,10 @@ input[type=text],input[type=number],select{font:inherit;width:100%;min-height:44
  </details></div>
 
 <div class="card"><h2>Exports</h2><div id="st" class="mute"></div><div id="fmt" class="small"></div>
+<details id="storBox"><summary>Storage on this phone</summary><div class="small" style="display:grid;gap:8px;margin:8px 0">
+ <span id="stInfo" class="mute">Checking…</span>
+ <span class="mute">Finished videos are kept inside this page until you press <b>Remove</b> on them, so download first. Videos left behind by an interrupted run are deleted automatically the next time the page opens.</span>
+ <div class="bar"><button class="sm" id="stClear">Delete all stored videos</button><button class="sm" id="stModel">Delete the AI model</button></div></div></details>
 <details id="vimeoBox"><summary>Upload to Vimeo (optional)</summary><div class="small" style="display:grid;gap:8px;margin:8px 0">
  <label>Access token <input id="vtok" type="password" autocomplete="off" placeholder="Paste your personal Vimeo access token" style="width:100%"></label>
  <label>Who can watch <select id="vpriv"><option value="unlisted">Only with the link (unlisted)</option><option value="nobody">Only me (private)</option><option value="anybody">Everyone (public)</option></select></label>
@@ -496,7 +500,7 @@ function renderJob(j,A,L,P){
   let lastM=0;
   const rec=new MediaRecorder(new MediaStream([...cv.captureStream(o.fps).getVideoTracks(),...dest.stream.getAudioTracks()]),{mimeType:MIME,videoBitsPerSecond:o.bitrate*1e6,audioBitsPerSecond:useMp3?64000:160000});
   rec.ondataavailable=e=>{if(e.data.size)sink.write(e.data)};
-  let ended=false,blocked=0;const finish=async why=>{if(ended)return;ended=true;tickW.postMessage(0);wakeOff();try{localStorage.removeItem('mm_busy')}catch(e){}try{src.stop()}catch(e){}pool.forEach(p=>p.el.pause());
+  let ended=false,blocked=0;const finish=async why=>{if(ended)return;ended=true;tickW.postMessage(0);wakeOff();try{localStorage.removeItem('mm_busy');localStorage.removeItem('mm_beat')}catch(e){}try{src.stop()}catch(e){}pool.forEach(p=>p.el.pause());
    await new Promise(r=>{rec.onstop=r;if(rec.state!='inactive')rec.stop();else r()});let f=await sink.close();
    if(EXT=='mp4'){j.status='finalizing';j.msg='Fixing duration and seeking…';upd(j);
     try{const s2=await openSink(`${j.id}-fixed-${Date.now()}.mp4`);const ok=await fixMp4(f,s2,p=>{j.msg=`Fixing duration and seeking… ${Math.round(p*100)} %`;upd(j)},useMp3?{mp3:j.audio,lead:tS-tRec,expected:why=='done'?A.dur:lastM}:null);
@@ -522,7 +526,7 @@ function renderJob(j,A,L,P){
    if(k>0&&fx<1){dv(holder(slots[k-1].loop)?.el,1);dv(holder(s.loop)?.el,fx)}else dv(holder(s.loop)?.el,1);
    for(const[lk,w]of[[pl,1-fx],[look,fx]])if(lk.tint>0&&w>.01){g.globalCompositeOperation='soft-light';g.fillStyle=`hsla(${lk.hue},80%,55%,${Math.min(1,lk.tint*react*w)})`;g.fillRect(0,0,W,H);g.globalCompositeOperation='source-over'}
    const pu=o.pulse*bo*env(T.pulse,m,10);if(pu>.002){g.fillStyle=o.pulseMode=='dark'?`rgba(0,0,0,${Math.min(1,pu*2)})`:`rgba(255,255,255,${pu})`;g.fillRect(0,0,W,H)}
-   j.prog=m/A.dur;const now=performance.now();if(now-lastUI>700){lastUI=now;j.tctx&&j.tctx.drawImage(cv,0,0,j.tctx.canvas.width,j.tctx.canvas.height);upd(j)}};
+   j.prog=m/A.dur;const now=performance.now();if(now-lastUI>700){lastUI=now;try{localStorage.setItem('mm_beat',String(Date.now()))}catch(e){}j.tctx&&j.tctx.drawImage(cv,0,0,j.tctx.canvas.width,j.tctx.canvas.height);upd(j)}};
   tickW.postMessage(o.fps);
  });
 }
@@ -604,6 +608,18 @@ async function doJob(j){
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&cur&&cur.status=='rendering'){cur.note='Paused because the page was hidden. Come back and press Resume.';cur.ctl.pause()}else if(!document.hidden&&cur&&(cur.status=='rendering'||cur.status=='paused'))wakeOn()});
 addEventListener('beforeunload',e=>{if(jobs.some(j=>['preparing','rendering','paused','finalizing'].includes(j.status))){e.preventDefault();e.returnValue=''}});
 showUI();
+/* ---------------- storage: remove recordings that are no longer needed ---------------- */
+async function purgeStore(){
+ try{const r=await navigator.storage.getDirectory();const names=[];for await(const [n] of r.entries())names.push(n);for(const n of names)try{await r.removeEntry(n,{recursive:true})}catch(e){}}catch(e){}
+ try{if(typeof indexedDB!=='undefined'){const db=await new Promise((res,rej)=>{const q=indexedDB.open('munken-rec',1);q.onupgradeneeded=()=>q.result.createObjectStore('c');q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)});
+  await new Promise(res=>{const tx=db.transaction('c','readwrite');tx.objectStore('c').clear();tx.oncomplete=res;tx.onerror=res;tx.onabort=res});db.close()}}catch(e){}}
+async function stInfo(){let t='';try{const e=await navigator.storage.estimate();t=`This page uses ${e.usage>=1e9?(e.usage/1e9).toFixed(2)+' GB':Math.round(e.usage/1e6)+' MB'} on the phone.`}catch(e){t='Your browser does not report how much storage this page uses.'}$('#stInfo').textContent=t}
+const rendering=()=>jobs.some(j=>['rendering','paused','preparing','finalizing'].includes(j.status));
+$('#storBox').addEventListener('toggle',()=>{if($('#storBox').open)stInfo()});
+$('#stClear').onclick=async()=>{if(rendering()){$('#stInfo').textContent='Wait until the video that is being made is finished, or stop it first.';return}
+ if(!confirm('Delete all videos stored by this page? Download the ones you want first.'))return;jobs.slice().forEach(rmJob);await purgeStore();await stInfo()};
+$('#stModel').onclick=async()=>{try{for(const k of await caches.keys())await caches.delete(k)}catch(e){}await stInfo();$('#stInfo').textContent+=' The AI model will be downloaded again the next time it is used (about 90 MB).'};
+(async()=>{let beat=0;try{beat=+localStorage.getItem('mm_beat')||0}catch(e){}if(Date.now()-beat>30000){await purgeStore();try{localStorage.removeItem('mm_beat')}catch(e){}}})();
 if(localStorage.getItem('mm_clip')){localStorage.removeItem('mm_clip');localStorage.removeItem('mm_busy');st('The page reloaded while the AI (CLIP) was running. The phone probably ran out of memory. Switch Smarter matching off, or try fewer loops and a smaller picture size.',1)}
 else if(localStorage.getItem('mm_busy')){localStorage.removeItem('mm_busy');st('The page reloaded while a video was being made. That usually means the phone ran out of memory or the screen locked. Try 480p, fewer loops or a shorter track, and keep the screen on.',1)}
 </script>
