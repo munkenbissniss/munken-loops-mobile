@@ -70,3 +70,7 @@ The mood now comes from the **music only**: how much is happening in it (rhythmi
 
 - **Adaptive transitions** (web app setting): each fade is made longer and softer between clips that look different or differ in brightness, and shorter between clips that are alike, with a gentler fade curve. On average the fades keep the length you chose.
 - **Smooth flow between clips** (web app setting): the next clip is chosen so that it looks and feels like the one before it (colour, brightness, texture, motion), also across song sections. Every loop is still used. Both settings are 0 to 1; 0 switches them off. The mobile app uses the default values (0.6 and 0.5).
+
+## Why storage was not freed on iPhone (fixed)
+
+On iPhone and iPad the recording used to be kept in IndexedDB, which does not give the space back reliably after videos are deleted. Recordings now go into real files in the browser's private file system (written by a background worker), and deleting a video, **Delete all stored videos**, or the clean-up at page start removes the files for real. Test in a desktop browser: the page's data went from 6.7 MB to 0.06 MB after pressing Remove. Not yet tested on a real iPhone.

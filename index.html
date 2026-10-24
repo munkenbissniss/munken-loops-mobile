@@ -453,17 +453,35 @@ async function clipEmbed(L,o,msg){
 const MIMES=['video/mp4;codecs=avc1.640028,mp4a.40.2','video/mp4;codecs=avc1,mp4a.40.2','video/mp4;codecs=avc1','video/mp4','video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'];
 const MIME=window.MediaRecorder?MIMES.find(t=>MediaRecorder.isTypeSupported(t))||'':'',EXT=MIME.includes('mp4')?'mp4':'webm';
 $('#fmt').innerHTML=!MIME?'<span class="note">This browser cannot record video. Try Chrome (Android) or Safari (iPhone).</span>':EXT=='mp4'?'':'<span class="note">This phone can only save WebM. Many apps cannot open it, but it plays in a browser and can be converted with ffmpeg.</span>';
+/* Recording storage for browsers without createWritable (iPhone/iPad): a worker writes straight into a real file in the browser's private file system, which is really deleted again (IndexedDB is not). */
+async function openWorkerSink(name){
+ try{if(!navigator.storage||!navigator.storage.getDirectory||typeof Worker==='undefined')return null;
+  const root=await navigator.storage.getDirectory(),src=`let acc=null,pos=0;onmessage=async e=>{const d=e.data;try{
+   if(d.cmd=='open'){const root=await navigator.storage.getDirectory(),fh=await root.getFileHandle(d.name,{create:true});acc=await fh.createSyncAccessHandle();acc.truncate(0);pos=0}
+   else if(d.cmd=='write'){pos+=acc.write(new Uint8Array(d.buf),{at:pos})}
+   else if(d.cmd=='close'){if(acc){acc.flush();acc.close();acc=null}}
+   postMessage({id:d.id})}catch(err){postMessage({id:d.id,err:String(err&&err.message||err)})}}`,
+   w=new Worker(URL.createObjectURL(new Blob([src],{type:'text/javascript'})));let n=0;const pend={};
+  w.onmessage=e=>{const r=pend[e.data.id];delete pend[e.data.id];r&&(e.data.err?r[1](new Error(e.data.err)):r[0]())};
+  const call=(m,t)=>new Promise((res,rej)=>{const id=++n;pend[id]=[res,rej];w.postMessage({...m,id},t||[])});
+  await call({cmd:'open',name});let p=Promise.resolve(),closed=false;
+  const shut=async()=>{if(closed)return;closed=true;try{await call({cmd:'close'})}catch(e){}w.terminate()};
+  return{write(b){p=p.then(async()=>{const buf=await b.arrayBuffer();await call({cmd:'write',buf},[buf])})},
+   async close(){await p;await shut();return (await root.getFileHandle(name)).getFile()},
+   async remove(){try{await p}catch(e){}await shut();for(const x of [name,name+'.crswap'])try{await root.removeEntry(x)}catch(e){}}}
+ }catch(e){return null}}
 async function openSink(name){let w=null,root=null,fh=null;try{root=await navigator.storage.getDirectory();fh=await root.getFileHandle(name,{create:true});w=await fh.createWritable()}catch(e){w=null}
- if(w){let p=Promise.resolve();return{write(b){p=p.then(()=>w.write(b))},async close(){await p;await w.close();return fh.getFile()},async remove(){try{await root.removeEntry(name)}catch(e){}}}}
+ if(w){let p=Promise.resolve();return{write(b){p=p.then(()=>w.write(b))},async close(){await p;await w.close();return fh.getFile()},async remove(){try{await w.abort()}catch(e){}for(const n of [name,name+'.crswap'])try{await root.removeEntry(n)}catch(e){}}}}
+ {const ws=await openWorkerSink(name);if(ws)return ws}
  // no private file system (iPhone): keep the recording in IndexedDB, which is stored on disk and not in memory
  if(typeof indexedDB!=='undefined'){try{
-  const db=await new Promise((res,rej)=>{const r=indexedDB.open('munken-rec',1);r.onupgradeneeded=()=>r.result.createObjectStore('c');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)});
+  const dbName='munken-rec-'+name.replace(/[^\w-]/g,'_'),db=await new Promise((res,rej)=>{const r=indexedDB.open(dbName,1);r.onupgradeneeded=()=>r.result.createObjectStore('c');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)});
   const put=(k,v)=>new Promise((res,rej)=>{const tx=db.transaction('c','readwrite');tx.objectStore('c').put(v,k);tx.oncomplete=res;tx.onerror=()=>rej(tx.error);tx.onabort=()=>rej(tx.error)}),range=IDBKeyRange.bound(name+':',name+':\uffff');
   await put(name+'_test',new Blob(['x']));await new Promise(res=>{const tx=db.transaction('c','readwrite');tx.objectStore('c').delete(name+'_test');tx.oncomplete=res;tx.onerror=res});
   let n=0,p=Promise.resolve();
   return{write(b){const k=`${name}:${String(n++).padStart(8,'0')}`;p=p.then(()=>put(k,b))},
    async close(){await p;const parts=await new Promise((res,rej)=>{const r=db.transaction('c').objectStore('c').getAll(range);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)});return new Blob(parts,{type:MIME})},
-   async remove(){try{await p}catch(e){}await new Promise(res=>{const tx=db.transaction('c','readwrite');tx.objectStore('c').delete(range);tx.oncomplete=res;tx.onerror=res})}}}catch(e){}}
+   async remove(){try{await p}catch(e){}try{db.close()}catch(e){}await new Promise(res=>{const q=indexedDB.deleteDatabase(dbName);q.onsuccess=q.onerror=q.onblocked=res})}}}catch(e){}}
  const mem=[];let p=Promise.resolve();
  return{write(b){p=p.then(()=>void mem.push(b))},async close(){await p;return new Blob(mem,{type:MIME})},async remove(){}}}
 const tickW=new Worker(URL.createObjectURL(new Blob(['let id;onmessage=e=>{clearInterval(id);if(e.data)id=setInterval(()=>postMessage(0),1000/e.data)}'])));
@@ -617,8 +635,8 @@ showUI();
 /* ---------------- storage: remove recordings that are no longer needed ---------------- */
 async function purgeStore(){
  try{const r=await navigator.storage.getDirectory();const names=[];for await(const [n] of r.entries())names.push(n);for(const n of names)try{await r.removeEntry(n,{recursive:true})}catch(e){}}catch(e){}
- try{if(typeof indexedDB!=='undefined'){const db=await new Promise((res,rej)=>{const q=indexedDB.open('munken-rec',1);q.onupgradeneeded=()=>q.result.createObjectStore('c');q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)});
-  await new Promise(res=>{const tx=db.transaction('c','readwrite');tx.objectStore('c').clear();tx.oncomplete=res;tx.onerror=res;tx.onabort=res});db.close()}}catch(e){}}
+ try{if(typeof indexedDB!=='undefined'){let names=['munken-rec'];try{if(indexedDB.databases)names=names.concat((await indexedDB.databases()).map(d=>d.name))}catch(e){}
+  for(const n of [...new Set(names)].filter(n=>n&&n.startsWith('munken-rec')))await new Promise(res=>{const q=indexedDB.deleteDatabase(n);q.onsuccess=q.onerror=q.onblocked=res;setTimeout(res,4000)})}}catch(e){}}
 async function stInfo(){let t='';try{const e=await navigator.storage.estimate();t=`This page uses ${e.usage>=1e9?(e.usage/1e9).toFixed(2)+' GB':Math.round(e.usage/1e6)+' MB'} on the phone.`}catch(e){t='Your browser does not report how much storage this page uses.'}$('#stInfo').textContent=t}
 const rendering=()=>jobs.some(j=>['rendering','paused','preparing','finalizing'].includes(j.status));
 $('#storBox').addEventListener('toggle',()=>{if($('#storBox').open)stInfo()});
