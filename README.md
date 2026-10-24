@@ -60,3 +60,13 @@ Open **Upload to Vimeo (optional)** in the app, paste a personal access token an
 ## Storage on the phone
 
 Videos are written to the browser's private storage while they are made, and kept there until you press **Remove** on them (download first). If the page is closed or reloaded in the middle of a run, the leftover files are deleted automatically the next time the page opens. Under **Storage on this phone** you can see how much space the page uses, delete everything it stored, or delete the downloaded AI model (it is cached in the browser and is only downloaded again if you delete it or clear Chrome's cached files).
+
+## How Recommended chooses the mood (browser apps)
+
+The mood now comes from the **music only**: how much is happening in it (rhythmic activity), how loud and bright it is, and the tempo. Your loops no longer decide the mood; they only fine-tune the typical shot length (about +/-8 %) and the slow motion amount. Calm, quiet music with little rhythm gets the slowest moods, busy bright loud music gets Groove.
+
+
+## Smoother mixes
+
+- **Adaptive transitions** (web app setting): each fade is made longer and softer between clips that look different or differ in brightness, and shorter between clips that are alike, with a gentler fade curve. On average the fades keep the length you chose.
+- **Smooth flow between clips** (web app setting): the next clip is chosen so that it looks and feels like the one before it (colour, brightness, texture, motion), also across song sections. Every loop is still used. Both settings are 0 to 1; 0 switches them off. The mobile app uses the default values (0.6 and 0.5).

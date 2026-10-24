@@ -146,7 +146,10 @@ async function analyzeAudio(ab,secLen,prog){
  const jump=energy.map((_,i)=>i>=4&&i<nb-3?mean(energy,i,i+4)-mean(energy,i-4,i):0),jm=maxf(jump,8),drops=[];
  jump.forEach((v,i)=>{if(v>.28&&v>=jm[i]){const s=snap(i);if(!drops.length||s-drops[drops.length-1]>=16)drops.push(s)}});
  const buildup=new Array(nb).fill(false);drops.forEach(d=>{for(let i=Math.max(0,d-8);i<d;i++)buildup[i]=true});
- return{dur,tempo,bt,nb,energy,phase:ph,sections,cluster,breaks,drops,buildup,kicks,kstr};
+ const dbs=Array.from(rms,v=>20*Math.log10(v+1e-6)).sort((a,b)=>a-b),qd=p=>dbs[Math.min(dbs.length-1,Math.floor(p*dbs.length))],cs=Array.from(cent).sort((a,b)=>a-b),
+  pk=[];let lpk=-9;for(let t=2;t<T-2;t++)if(oo[t]>.9&&oo[t]>=oo[t-1]&&oo[t]>oo[t+1]&&(t-lpk)/fr>.07){pk.push(t);lpk=t}
+ const feel={loud:qd(.9),dyn:qd(.9)-qd(.2),bright:cs[cs.length>>1]*sr/N,onsets:pk.length/dur,flux:mean(flux,0,T),clarity:bs};
+ return{dur,tempo,bt,nb,energy,phase:ph,sections,cluster,breaks,drops,buildup,kicks,kstr,feel};
 }
 
 /* loops: raw style vector v (15 numbers), mean motion mm, optional CLIP embedding emb */
@@ -168,10 +171,10 @@ function plan(A,L,S,o,rnd){
  A.breaks.forEach(([a,b])=>{for(let i=a;i<b;i++)brk[i]=true});
  const secs=A.sections.map(([a,b],i)=>({a,b,e:mean(A.energy,a,b),c:A.cluster[i]})),mu=()=>mean(used,0,n),cov=j=>o.useAll&&used[j]==0?1.2:0;
  const pick=(sc,temp)=>{const mx=Math.max(...sc.map(x=>x[0])),w=sc.map(x=>Math.exp((x[0]-mx)/temp)),t=w.reduce((a,b)=>a+b);let r=rnd()*t;for(let i=0;i<sc.length;i++){r-=w[i];if(r<=0)return sc[i][1]}return sc[sc.length-1][1]};
- const simTo=(j,set)=>set.reduce((s,k)=>s+S[j][k],0)/set.length;
+ const simTo=(j,set)=>set.reduce((s,k)=>s+S[j][k],0)/set.length,FLOW=o.flow??.5,SMOOTH=o.smooth??.6,lum=j=>L[j].v[4];
  const lookOf=c=>looks[c]??=(()=>{const v=o.lookVar,bl=o.layerBlend=='auto'?['screen','soft-light','overlay','lighten'][Math.floor(rnd()*4)]:o.layerBlend;
   return{hue:Math.floor(rnd()*360),tint:v>0?o.tintAmount*(.3+.7*v):0,mirror:o.mirror=='always'?1:(o.mirror=='sometimes'&&rnd()<.25+.3*v)?1:0,blend:bl}})();
- const makeSet=(e,size)=>{const set=[pick(L.map((l,j)=>[-o.matchEnergy*3*Math.abs(l.energy-e)-.6*used[j]/(1+mu())+cov(j)+o.themeWeight*3*l.th,j]),.15+.6*o.variety)];
+ const makeSet=(e,size)=>{const set=[pick(L.map((l,j)=>[-o.matchEnergy*3*Math.abs(l.energy-e)-.6*used[j]/(1+mu())+cov(j)+o.themeWeight*3*l.th+(prevLast>=0?FLOW*(1.5*S[j][prevLast]-2*Math.abs(lum(j)-lum(prevLast))):0),j]),.15+.6*o.variety)];
   while(set.length<Math.min(size,n)){const c=[];for(let j=0;j<n;j++)if(!set.includes(j))c.push([o.styleMatch*4*simTo(j,set)-o.matchEnergy*2*Math.abs(L[j].energy-e)-.4*used[j]/(1+mu())+cov(j)+o.themeWeight*2*L[j].th,j]);set.push(pick(c,.1+.3*o.variety))}
   set.forEach(j=>used[j]++);return set};
  let prevLast=-1;
@@ -186,11 +189,14 @@ function plan(A,L,S,o,rnd){
    if(o.evolve>0&&set.length>1&&(i-evo)/4>=o.evolve){const r=set.filter(j=>j!==last).sort((a,b)=>(age[a]??-1)-(age[b]??-1))[0],rest=set.filter(j=>j!==r),c=[];
     for(let j=0;j<n;j++)if(!set.includes(j))c.push([o.styleMatch*4*simTo(j,rest)-o.matchEnergy*2*Math.abs(L[j].energy-sec.e)-.4*used[j]/(1+mu())+cov(j),j]);
     if(c.length){const nj=pick(c,.2);set[set.indexOf(r)]=nj;used[nj]++}evo=i}
-   const cand=set.filter(j=>j!==last),pl=(cand.length?cand:set).slice().sort((a,b)=>(age[a]??-1)-(age[b]??-1)),j=pl.length>1&&rnd()<.25*o.variety?pl[1]:pl[0];
+   const cand=set.filter(j=>j!==last),pl=(cand.length?cand:set).slice().sort((a,b)=>(age[a]??-1)-(age[b]??-1));
+   let j=pl.length>1&&rnd()<.25*o.variety?pl[1]:pl[0];
+   if(FLOW>0&&last>=0&&pl.length>1)j=pick(pl.map((c,r)=>[-r*(1.2-FLOW*.6)+FLOW*(3*S[last][c]-4*Math.abs(lum(c)-lum(last))),c]),.25);
    age[j]=cnt++;last=j;
    slots.push({i0:i,i1:i+len,t0:A.bt[i],t1:A.bt[i+len],energy:mean(A.energy,i,i+len),kind,loop:j,sec:si,cluster:sec.c});i+=len}
   prevLast=last});
  slots.forEach((s,k)=>{lookOf(s.cluster);s.xf=0;if(k&&o.fade>0){const beat=(s.t1-s.t0)/(s.i1-s.i0);let x=o.fade*beat*(s.kind=='break'||s.energy<.3?1.5:1);if(s.kind=='drop')x=Math.min(x,beat);
+  if(s.kind!='drop'&&SMOOTH>0){const pj=slots[k-1].loop,sm=S[s.loop][pj],ld=Math.abs(lum(s.loop)-lum(pj));x*=clamp(1+SMOOTH*(.8*(1-sm)-.8+1.2*ld),.6,1.9)}
   s.xf=Math.min(x,.4*(s.t1-s.t0),.4*(slots[k-1].t1-slots[k-1].t0))}});
  // accent layers (like a second layer in a VJ deck): two possible windows per long shot
  const layers=[],wins=slots.map(()=>[null,null,null]);
@@ -480,7 +486,7 @@ function acquire(L,l,need,m){const p=pool.find(p=>p.loop===-1)||pool.filter(p=>!
  el.addEventListener('loadedmetadata',()=>{el.currentTime=Math.random()*el.duration;el.play().catch(()=>{})},{once:true});el.src=p.url;el.load()}
 const trig=(A,mode)=>mode=='kick'?A.kicks.map((t,i)=>({t,w:.5+.5*A.kstr[i]})):A.bt.slice(1,-1).map((t,i)=>({t,i:i+1})).filter(x=>mode=='beat'||((x.i-A.phase)%4+4)%4==0).map(x=>({t:x.t,w:1}));
 const env=(a,m,d)=>{let lo=0,hi=a.length-1,r=-1;while(lo<=hi){const k=(lo+hi)>>1;if(a[k].t<=m){r=k;lo=k+1}else hi=k-1}return r<0?0:a[r].w*Math.exp(-d*(m-a[r].t))};
-const ease=x=>x*x*(3-2*x);
+const ease=x=>x*x*(3-2*x),ease5=x=>x*x*x*(x*(x*6-15)+10);
 
 function renderJob(j,A,L,P){
  return new Promise(async resolve=>{
@@ -512,7 +518,7 @@ function renderJob(j,A,L,P){
    resume:async()=>{if(j.status!='paused')return;j.status='rendering';j.msg='';j.note='';blocked=0;rec.state=='paused'&&rec.resume();await AC.resume();wakeOn();upd(j)},stop:()=>{if(j.status=='paused')AC.resume();finish('stopped')}};
   const tS=AC.currentTime+.3,tRec=AC.currentTime;src.start(tS);rec.start(1000);wakeOn();try{localStorage.setItem('mm_busy','1')}catch(e){}j.status='rendering';j.msg='';upd(j);let lastUI=0,lastRate=0;
   tickW.onmessage=()=>{if(ended||j.status!='rendering')return;const m=AC.currentTime-tS;if(m<0)return;lastM=m;if(m>=A.dur){finish('done');return}
-   const k=findK(m);ensure(m,k);const s=slots[k],since=m-ta[k],bo=s.kind=='drop'?1.6:1,e=eAt(m),react=1-o.reactive+o.reactive*Math.min(1.4,e*1.6),look=looks[s.cluster],pl=k>0?looks[slots[k-1].cluster]:look,fx=s.xf>0&&since<s.xf?ease(since/s.xf):1;
+   const k=findK(m);ensure(m,k);const s=slots[k],since=m-ta[k],bo=s.kind=='drop'?1.6:1,e=eAt(m),react=1-o.reactive+o.reactive*Math.min(1.4,e*1.6),look=looks[s.cluster],pl=k>0?looks[slots[k-1].cluster]:look,fx=s.xf>0&&since<s.xf?ease5(since/s.xf):1;
    const vis=visible(m,k),nowT=performance.now();for(const p of pool)if(p.loop>=0){const want=vis.has(p.loop);
     if(want&&p.el.paused&&p.el.readyState>=2){const pr=p.el.play();pr&&pr.catch(err=>{if(err&&err.name=='NotAllowedError')blocked++})}else if(!want&&!p.el.paused)p.el.pause();
     if(want&&!p.el.paused&&p.el.readyState>=2){if(Math.abs(p.el.currentTime-p.ct)>.001){p.ct=p.el.currentTime;p.cat=nowT}
@@ -574,16 +580,16 @@ function recommendM(A,L,S){
   iv=A.bt.slice(1).map((t,i)=>t-A.bt[i]).filter(x=>x>.05),mi=mean(iv,0,iv.length)||.5,cv=Math.sqrt(mean(iv.map(x=>(x-mi)**2),0,iv.length))/mi,
   mm=mean(L.map(l=>l.mm),0,L.length),motion=clamp((Math.log10(Math.max(mm,1e-4))+2.3)/1.3,0,1);
  let sim=0,c=0;for(let i=0;i<L.length;i++)for(let j=i+1;j<L.length;j++){sim+=S[i][j];c++}sim=c?sim/c:.5;
- const drive=.4*clamp((bpm-70)/80,0,1)+.3*mE+.2*clamp(kd/3,0,1)+.1*clamp(dyn/.3,0,1),cls=drive<.35?'Ambient':drive<.55?'Chill':drive<.75?'Groove':'Energetic',
+ const F=A.feel||{loud:-20,dyn:12,bright:1500,onsets:4},drive=.12*clamp((bpm-60)/100,0,1)+.45*clamp(F.flux/8,0,1)+.23*clamp((F.loud+32)/18,0,1)+.15*clamp((F.bright-300)/2500,0,1)+.05*clamp(kd/3,0,1),cls=drive<.28?'Ambient':drive<.5?'Chill':drive<.75?'Groove':'Energetic',
   X={Ambient:{slowmo:.5,breathe:.04,lookVar:.3,zoom:0,pulse:0},Chill:{slowmo:.3,breathe:.03,lookVar:.4,zoom:0,pulse:0},Groove:{slowmo:.1,breathe:.02,lookVar:.5,zoom:.02,pulse:0},Energetic:{slowmo:0,breathe:0,lookVar:.7,zoom:.05,pulse:.1}}[cls],
-  beatS=60/bpm,barS=4*beatS,target={Ambient:28,Chill:16,Groove:13,Energetic:6}[cls]*(.85+.3*motion),sb=[1,2,4,8,16,32][clamp(Math.round(Math.log2(target/barS)),1,5)],
+  beatS=60/bpm,barS=4*beatS,target={Ambient:28,Chill:16,Groove:13,Energetic:6}[cls]*(.92+.16*motion),sb=[1,2,4,8,16,32][clamp(Math.round(Math.log2(target/barS)),1,5)],
   fadeF={Ambient:.4,Chill:.25,Groove:.15,Energetic:.08}[cls],fade=clamp(Math.round(sb*4*fadeF*2)/2,.5,16),setSize=L.length<6?2:3;
  const rec={shotBars:sb,minBars:nearest(sb/2,[2,4,8]),maxBars:Math.max(sb,nearest(sb*4,[8,16,32])),follow:clamp(r20(.3+dyn*2.5),.3,1.2),fade,setSize,styleMatch:sim>.55?.6:sim<.35?.85:.7,variety:.5,matchEnergy:.6,
   zoomOn:cls=='Energetic'?'beat':'bar',pulseOn:'kick',pulseMode:'dark'};
  const why=[`Tempo ${bpm.toFixed(0)} BPM, ${cv<.03?'steady':cv<.07?'fairly steady':'varying'} beat. ${mE<.4?'Low':mE<.65?'Medium':'High'} energy, ${A.drops.length} drop${A.drops.length==1?'':'s'}, so it feels ${cls}.`,
   `Your loops are ${motion<.33?'calm':motion<.66?'moderately active':'very active'} and ${sim>.55?'quite alike':sim<.35?'quite different':'fairly varied'}.`,
   `Clips last about ${Math.round(sb*barS)} s (${sb} bars), crossfade ${fade} beats (about ${(fade*beatS).toFixed(1)} s), ${setSize} loops per section.`];
- return{rec,x:X,cls,why,pace:sb>=16?'Slow':sb>=8?'Normal':'Fast',fadeSeg:fade<=3?'Short':fade<=10?'Medium':'Long'};
+ return{rec,x:X,cls,drive,why,pace:sb>=16?'Slow':sb>=8?'Normal':'Fast',fadeSeg:fade<=3?'Short':fade<=10?'Medium':'Long'};
 }
 async function recommendNow(){
  const h=$('#moodH'),say=m=>{h.textContent=m};
