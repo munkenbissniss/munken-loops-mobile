@@ -69,6 +69,10 @@ input[type=text],input[type=number],select{font:inherit;width:100%;min-height:44
   <div class="h">The same seed and settings give the same mix. The seed of each export is shown on its card.</div>
  </details></div>
 
+<div id="recov" class="card" style="display:none;border:2px solid var(--warn);margin:10px 0"><b>A video was interrupted</b>
+ <p class="small" id="recTxt"></p>
+ <label class="small">Pick the same MP3 again to get the original sound (optional) <input type="file" id="recMp3" accept="audio/*,.mp3"></label>
+ <div class="bar" style="margin-top:8px"><button class="main" id="recGo">Save what was recorded</button><button class="sm" id="recNo">Discard it</button></div><div id="recOut" class="small"></div></div>
 <div class="card"><h2>Exports</h2><div id="st" class="mute"></div><div id="fmt" class="small"></div>
 <details id="storBox"><summary>Storage on this phone</summary><div class="small" style="display:grid;gap:8px;margin:8px 0">
  <span id="stInfo" class="mute">Checking…</span>
@@ -524,7 +528,7 @@ function renderJob(j,A,L,P){
   let lastM=0;
   const rec=new MediaRecorder(new MediaStream([...cv.captureStream(o.fps).getVideoTracks(),...dest.stream.getAudioTracks()]),{mimeType:MIME,videoBitsPerSecond:o.bitrate*1e6,audioBitsPerSecond:useMp3?64000:160000});
   rec.ondataavailable=e=>{if(e.data.size)sink.write(e.data)};
-  let ended=false,blocked=0;const finish=async why=>{if(ended)return;ended=true;tickW.postMessage(0);wakeOff();try{localStorage.removeItem('mm_busy');localStorage.removeItem('mm_beat')}catch(e){}try{src.stop()}catch(e){}pool.forEach(p=>p.el.pause());
+  let ended=false,blocked=0;const finish=async why=>{if(ended)return;ended=true;tickW.postMessage(0);wakeOff();try{localStorage.removeItem('mm_busy');localStorage.removeItem('mm_beat');localStorage.removeItem('mm_pos');localStorage.removeItem('mm_lead')}catch(e){}try{src.stop()}catch(e){}pool.forEach(p=>p.el.pause());
    await new Promise(r=>{rec.onstop=r;if(rec.state!='inactive')rec.stop();else r()});let f=await sink.close();
    if(EXT=='mp4'){j.status='finalizing';j.msg='Fixing duration and seeking…';upd(j);
     try{const s2=await openSink(`${j.id}-fixed-${Date.now()}.mp4`);const ok=await fixMp4(f,s2,p=>{j.msg=`Fixing duration and seeking… ${Math.round(p*100)} %`;upd(j)},useMp3?{mp3:j.audio,lead:tS-tRec,expected:why=='done'?A.dur:lastM}:null);
@@ -534,7 +538,7 @@ function renderJob(j,A,L,P){
    j.file=f instanceof File?f:new File([f],'mix.'+EXT,{type:MIME.split(';')[0]});j.url=URL.createObjectURL(j.file);j.status=why;j.prog=why=='done'?1:j.prog;j.msg='';upd(j);if(AC.state=='suspended')AC.resume();resolve()};
   j.ctl={pause:async()=>{if(j.status!='rendering')return;j.status='paused';await AC.suspend();rec.state=='recording'&&rec.pause();pool.forEach(p=>p.el.pause());upd(j)},
    resume:async()=>{if(j.status!='paused')return;j.status='rendering';j.msg='';j.note='';blocked=0;rec.state=='paused'&&rec.resume();await AC.resume();wakeOn();upd(j)},stop:()=>{if(j.status=='paused')AC.resume();finish('stopped')}};
-  const tS=AC.currentTime+.3,tRec=AC.currentTime;src.start(tS);rec.start(1000);wakeOn();try{localStorage.setItem('mm_busy','1')}catch(e){}j.status='rendering';j.msg='';upd(j);let lastUI=0,lastRate=0;
+  const tS=AC.currentTime+.3,tRec=AC.currentTime;src.start(tS);rec.start(1000);wakeOn();try{localStorage.setItem('mm_busy','1');localStorage.setItem('mm_lead',String(tS-tRec))}catch(e){}j.status='rendering';j.msg='';upd(j);let lastUI=0,lastRate=0;
   tickW.onmessage=()=>{if(ended||j.status!='rendering')return;const m=AC.currentTime-tS;if(m<0)return;lastM=m;if(m>=A.dur){finish('done');return}
    const k=findK(m);ensure(m,k);const s=slots[k],since=m-ta[k],bo=s.kind=='drop'?1.6:1,e=eAt(m),react=1-o.reactive+o.reactive*Math.min(1.4,e*1.6),look=looks[s.cluster],pl=k>0?looks[slots[k-1].cluster]:look,fx=s.xf>0&&since<s.xf?ease5(since/s.xf):1;
    const vis=visible(m,k),nowT=performance.now();for(const p of pool)if(p.loop>=0){const want=vis.has(p.loop);
@@ -550,7 +554,7 @@ function renderJob(j,A,L,P){
    if(k>0&&fx<1){dv(holder(slots[k-1].loop)?.el,1);dv(holder(s.loop)?.el,fx)}else dv(holder(s.loop)?.el,1);
    for(const[lk,w]of[[pl,1-fx],[look,fx]])if(lk.tint>0&&w>.01){g.globalCompositeOperation='soft-light';g.fillStyle=`hsla(${lk.hue},80%,55%,${Math.min(1,lk.tint*react*w)})`;g.fillRect(0,0,W,H);g.globalCompositeOperation='source-over'}
    const pu=o.pulse*bo*env(T.pulse,m,10);if(pu>.002){g.fillStyle=o.pulseMode=='dark'?`rgba(0,0,0,${Math.min(1,pu*2)})`:`rgba(255,255,255,${pu})`;g.fillRect(0,0,W,H)}
-   j.prog=m/A.dur;const now=performance.now();if(now-lastUI>700){lastUI=now;try{localStorage.setItem('mm_beat',String(Date.now()))}catch(e){}j.tctx&&j.tctx.drawImage(cv,0,0,j.tctx.canvas.width,j.tctx.canvas.height);upd(j)}};
+   j.prog=m/A.dur;const now=performance.now();if(now-lastUI>700){lastUI=now;try{localStorage.setItem('mm_beat',String(Date.now()));localStorage.setItem('mm_pos',m.toFixed(1)+'/'+A.dur.toFixed(0))}catch(e){}j.tctx&&j.tctx.drawImage(cv,0,0,j.tctx.canvas.width,j.tctx.canvas.height);upd(j)}};
   tickW.postMessage(o.fps);
  });
 }
@@ -643,8 +647,21 @@ $('#storBox').addEventListener('toggle',()=>{if($('#storBox').open)stInfo()});
 $('#stClear').onclick=async()=>{if(rendering()){$('#stInfo').textContent='Wait until the video that is being made is finished, or stop it first.';return}
  if(!confirm('Delete all videos stored by this page? Download the ones you want first.'))return;jobs.slice().forEach(rmJob);await purgeStore();await stInfo()};
 $('#stModel').onclick=async()=>{try{for(const k of await caches.keys())await caches.delete(k)}catch(e){}await stInfo();$('#stInfo').textContent+=' The AI model will be downloaded again the next time it is used (about 90 MB).'};
-(async()=>{let beat=0;try{beat=+localStorage.getItem('mm_beat')||0}catch(e){}if(Date.now()-beat>30000){await purgeStore();try{localStorage.removeItem('mm_beat')}catch(e){}}})();
+(async()=>{let beat=0;try{beat=+localStorage.getItem('mm_beat')||0}catch(e){}if(Date.now()-beat>30000&&!localStorage.getItem('mm_busy')){await purgeStore();try{localStorage.removeItem('mm_beat')}catch(e){}}})();
 if(localStorage.getItem('mm_clip')){localStorage.removeItem('mm_clip');localStorage.removeItem('mm_busy');st('The page reloaded while the AI (CLIP) was running. The phone probably ran out of memory. Switch Smarter matching off, or try fewer loops and a smaller picture size.',1)}
-else if(localStorage.getItem('mm_busy')){localStorage.removeItem('mm_busy');st('The page reloaded while a video was being made. That usually means the phone ran out of memory or the screen locked. Try 480p, fewer loops or a shorter track, and keep the screen on.',1)}
+else if(localStorage.getItem('mm_busy')){const pos=(localStorage.getItem('mm_pos')||'').split('/'),at=pos[0]?` It stopped at ${fmtT(+pos[0])} of ${fmtT(+pos[1]||0)}.`:'';
+ st('The page reloaded while a video was being made. That usually means the phone ran out of memory or the screen locked. Try 480p, fewer loops or a shorter track, and keep the screen on.'+at,1);
+ (async()=>{let fh=null,best=0;try{const r=await navigator.storage.getDirectory();for await(const [n,h] of r.entries())if(/^\d+-\d+\.(mp4|webm)$/.test(n)){const f=await h.getFile();if(f.size>1e6&&f.lastModified>=best){best=f.lastModified;fh=f}}}catch(e){}
+  const clear=()=>{['mm_busy','mm_pos','mm_lead','mm_beat'].forEach(k=>{try{localStorage.removeItem(k)}catch(e){}});$('#recov').style.display='none'};
+  if(!fh){try{localStorage.removeItem('mm_busy')}catch(e){}return}
+  $('#recov').style.display='';$('#recTxt').textContent=`Part of the video was saved (${(fh.size/1e6).toFixed(0)} MB${at?', up to '+fmtT(+pos[0]):''}). You can still get it as a video file.`;
+  $('#recNo').onclick=async()=>{clear();await purgeStore();stInfo&&stInfo()};
+  $('#recGo').onclick=async()=>{const b=$('#recGo');b.disabled=true;const out=$('#recOut');
+   try{if(!/mp4$/.test(fh.name)&&fh.type!=='video/mp4'&&!fh.name.endsWith('.mp4')){out.innerHTML=`<a class="btn main" href="${URL.createObjectURL(fh)}" download="recovered.webm">Download recovered video</a>`;return}
+    const mp3=$('#recMp3').files[0];let useM=false;if(mp3)try{await mp3Info(mp3);useM=true}catch(e){}
+    const s2=await openSink(`recovered-${Date.now()}.mp4`),ok=await fixMp4(fh,s2,p=>{out.textContent=`Preparing the video… ${Math.round(p*100)} %`},useM?{mp3,lead:+localStorage.getItem('mm_lead')||.3,expected:+pos[0]||0}:null);
+    if(!ok){out.textContent='This recording could not be repaired.';await s2.remove();return}
+    const f2=await s2.close();out.innerHTML=`<a class="btn main" href="${URL.createObjectURL(f2)}" download="recovered.mp4">Download recovered video (${(f2.size/1e6).toFixed(0)} MB)</a> <span class="mute">${useM?'With the original MP3 sound.':'With the sound that was recorded (lower quality).'}</span>`
+   }catch(e){out.textContent='Could not save it: '+(e.message||e)}finally{b.disabled=false}}})()}
 </script>
 </body></html>

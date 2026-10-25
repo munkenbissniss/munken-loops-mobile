@@ -74,3 +74,7 @@ The mood now comes from the **music only**: how much is happening in it (rhythmi
 ## Why storage was not freed on iPhone (fixed)
 
 On iPhone and iPad the recording used to be kept in IndexedDB, which does not give the space back reliably after videos are deleted. Recordings now go into real files in the browser's private file system (written by a background worker), and deleting a video, **Delete all stored videos**, or the clean-up at page start removes the files for real. Test in a desktop browser: the page's data went from 6.7 MB to 0.06 MB after pressing Remove. Not yet tested on a real iPhone.
+
+## If the page reloads while a video is being made
+
+iPhone can close a page that uses a lot of memory or that is in the background (locked screen, another app). When the page opens again it tells you how far the video had come ("It stopped at 3:42 of 10:00") and, if part of it was saved, offers **Save what was recorded**. Pick the same MP3 again to get the original sound in the saved part. Keep the screen on and the page in front while the video is made.
